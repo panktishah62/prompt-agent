@@ -29,8 +29,8 @@ Each stage is independently runnable. The full pipeline chains all four.
 │                                            │                        │
 │                             ┌──────────────▼───────────────────┐   │
 │                             │            analyze               │   │
-│                             │  deterministic passes (always)   │   │
-│                             │  + LLM augmentation (optional)   │   │
+│                             │  deterministic passes    │   │
+│                             │  + LLM augmentation    │   │
 │                             └──────────────┬───────────────────┘   │
 │                                            │ ranked issues          │
 │                             ┌──────────────▼───────────────────┐   │
@@ -93,7 +93,7 @@ The CLI uses `python-dotenv` and automatically loads the first `.env` it finds o
 
 ### Without an API key
 
-All LLM-backed code paths are disabled. The pipeline still runs using deterministic heuristics and produces the same artifact structure — useful for CI, offline demos, and reproducible runs.
+All LLM-backed code paths are disabled. 
 
 ---
 
@@ -134,27 +134,6 @@ prompt-tool evaluate /path/to/prompt.json artifacts/patched.json
 All commands write to `artifacts/` by default. Use `--output-dir <path>` to override.
 
 ---
-
-## Input Format
-
-The CLI expects a single JSON file with the following top-level fields:
-
-```jsonc
-{
-  "general_prompt": "You are a healthcare front-desk assistant...",
-  "tools": [
-    {
-      "name": "schedule_appointment",
-      "description": "...",
-      "parameters": { ... }
-    }
-  ],
-  "config": {
-    "model": "gpt-4o",
-    "temperature": 0.2
-  }
-}
-```
 
 
 ## Pipeline Stages
@@ -237,7 +216,7 @@ Runs both the original and patched prompts through a set of **adversarial caller
 
 Each scenario has explicit **pass/fail checks**, making scores objective and reproducible.
 
- The evaluator simulates full multi-turn caller/assistant transcripts via OpenAI, then applies rule-based checks and an optional LLM judge to produce natural-language rationales.
+ The evaluator simulates full multi-turn caller/assistant transcripts via OpenAI, then applies checks and an optional LLM judge to produce natural-language rationales.
 
 
 ---
@@ -355,7 +334,7 @@ The test suite covers:
 
 ---
 
-## Current Limitations
+## Future Improvements
 
 ### Tool/runtime contract clarity
 
