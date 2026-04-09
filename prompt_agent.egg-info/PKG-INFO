@@ -1,0 +1,77 @@
+Metadata-Version: 2.4
+Name: prompt-agent
+Version: 0.1.0
+Summary: CLI for analyzing, fixing, and evaluating large voice agent prompts.
+Requires-Python: >=3.11
+Description-Content-Type: text/markdown
+Requires-Dist: openai>=1.30.0
+Requires-Dist: python-dotenv>=1.0.0
+Requires-Dist: pydantic>=2.7.0
+Requires-Dist: rich>=13.7.0
+Requires-Dist: typer>=0.12.3
+Provides-Extra: dev
+Requires-Dist: pytest>=8.2.0; extra == "dev"
+
+# Prompt Agent
+
+`prompt-agent` is a Python CLI for reviewing large healthcare voice-agent prompt JSON files, surfacing grounded issues, applying targeted prompt fixes, and producing before/after evaluation evidence.
+
+## How To Run
+
+1. Install the package:
+
+```bash
+pip3 install -e '.[dev]'
+```
+
+2. Run the full pipeline on a prompt JSON:
+
+```bash
+prompt-tool run /path/to/prompt.json
+```
+
+3. Or run the stages separately:
+
+```bash
+prompt-tool analyze /path/to/prompt.json
+prompt-tool fix /path/to/prompt.json --apply-safe
+prompt-tool evaluate /path/to/prompt.json artifacts/patched.json
+```
+
+Artifacts are written to `artifacts/` by default:
+- `issues.json`
+- `issues.md`
+- `patched.json`
+- `eval_report.md`
+- `eval_report.json`
+
+Set `OPENAI_API_KEY` to enable OpenAI-backed analyzer augmentation and LLM simulation/judging. Without an API key, the tool still runs end-to-end using deterministic heuristics and produces comparable artifacts.
+
+You can export it in the shell, or create a `.env` file (see `.env.example`): the CLI loads the first `.env` found walking up from the current working directory.
+
+## Key Design Decisions
+
+- Hybrid architecture: deterministic issue detectors and fixers provide reliable offline execution, while optional OpenAI calls add deeper analysis and stronger eval evidence when credentials are present.
+- Minimal, targeted patches: fixes operate against `general_prompt` with small string-level edits instead of full rewrites, so working behavior is less likely to regress.
+- Scenario-based verification: evaluation uses realistic caller scenarios aligned to the assignment axes (`Patient Experience` and `Workflow Adherence`) and reports before/after score deltas.
+
+## AI Tools Used
+
+- OpenAI is the default LLM backend for optional issue augmentation, patch generation for unsupported issue types, caller simulation, and transcript judging.
+- The deterministic pipeline exists so the repo remains runnable without network credentials and can still demonstrate the end-to-end product shape.
+
+## Tests
+
+The repository includes automated tests for parsing, issue detection, patch application, and before/after evaluation.
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+Note: `pytest` was installed initially, but in this environment it segfaulted during collection, so the checked-in suite uses `unittest` for stable execution.
+
+## What I Would Improve With More Time
+
+- Replace string-based patching with span-aware AST-like prompt editing.
+- Add richer multi-turn simulations with tool-result injection rather than transcript-only judging.
+- Add importers for PDFs or raw prompt text so the tool can ingest the assignment asset directly before converting to JSON.

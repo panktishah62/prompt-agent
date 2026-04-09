@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "prompt-agent"
+version = "0.1.0"
+description = "CLI for analyzing, fixing, and evaluating large voice agent prompts."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+  "openai>=1.30.0",
+  "python-dotenv>=1.0.0",
+  "pydantic>=2.7.0",
+  "rich>=13.7.0",
+  "typer>=0.12.3",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.2.0",
+]
+
+[project.scripts]
+prompt-tool = "prompt_tool.cli:app"
+
+[tool.setuptools.packages.find]
+include = ["prompt_tool*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

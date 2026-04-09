@@ -1,0 +1,2 @@
+[console_scripts]
+prompt-tool = prompt_tool.cli:app
