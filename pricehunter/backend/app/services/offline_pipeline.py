@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 
+from app.config import settings
 from app.models.schemas import StructuredQuery, UnifiedResult, VoiceCallResult
 from app.services.vendor_discovery import discover_vendors
 from app.services.voice_agent import call_all_vendors, poll_call_result
@@ -23,6 +24,13 @@ async def run(query: StructuredQuery) -> list[UnifiedResult]:
     if not vendors:
         logger.warning("Offline pipeline found no vendors.")
         return []
+
+    if settings.test_call_phone.strip():
+        logger.info(
+            "Offline test-call mode is enabled; limiting vendor calls from %s to 1.",
+            len(vendors),
+        )
+        vendors = vendors[:1]
 
     calls = await call_all_vendors(vendors, query.product)
     completed_calls = await asyncio.gather(*[_resolve_call(call) for call in calls], return_exceptions=True)

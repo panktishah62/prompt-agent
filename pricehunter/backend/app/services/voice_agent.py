@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import random
 import uuid
 
@@ -165,6 +166,8 @@ def _extract_transcript_from_payload(payload: dict) -> str | None:
 async def poll_call_result(call: VoiceCallResult, timeout_seconds: int = 120) -> VoiceCallResult:
     if call.is_mock or settings.mock_voice_calls or not settings.bland_ai_api_key:
         return call
+    if call.status != "busy":
+        return call
 
     deadline = asyncio.get_running_loop().time() + timeout_seconds
     async with httpx.AsyncClient() as client:
@@ -179,13 +182,21 @@ async def poll_call_result(call: VoiceCallResult, timeout_seconds: int = 120) ->
             status = payload.get("status", "busy")
             transcript = _extract_transcript_from_payload(payload)
             duration = payload.get("call_length") or payload.get("duration")
+            duration_seconds = None
+            if isinstance(duration, (int, float)):
+                duration_seconds = max(0, int(math.ceil(duration)))
+            elif isinstance(duration, str):
+                try:
+                    duration_seconds = max(0, int(math.ceil(float(duration))))
+                except ValueError:
+                    duration_seconds = None
             if status == "completed":
                 return VoiceCallResult(
                     vendor=call.vendor,
                     call_id=call.call_id,
                     status="completed",
                     transcript=transcript,
-                    duration_seconds=duration,
+                    duration_seconds=duration_seconds,
                     is_mock=False,
                 )
             if status in {"failed", "no_answer", "busy"} and not transcript:
