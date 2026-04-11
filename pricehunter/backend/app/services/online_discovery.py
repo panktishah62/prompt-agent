@@ -1,10 +1,8 @@
 from __future__ import annotations
 
-import json
 import logging
-import re
 
-from anthropic import AsyncAnthropic
+from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 from app.config import settings
@@ -12,7 +10,6 @@ from app.models.schemas import StructuredQuery
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = "claude-sonnet-4-20250514"
 SYSTEM_PROMPT = """
 You are an e-commerce platform selection assistant for India.
 Given a structured shopping query, pick the most relevant Indian e-commerce platforms and return ONLY valid JSON.
@@ -54,11 +51,6 @@ class PlatformStrategy(BaseModel):
 
 class DiscoveryResponse(BaseModel):
     platforms: list[PlatformStrategy]
-
-
-def _extract_json_block(text: str) -> str:
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    return match.group(0) if match else text
 
 
 def _fallback_platforms(query: StructuredQuery) -> DiscoveryResponse:
@@ -108,24 +100,25 @@ def _fallback_platforms(query: StructuredQuery) -> DiscoveryResponse:
 
 async def discover_platforms(query: StructuredQuery) -> list[PlatformStrategy]:
     logger.info("Discovering platforms for category=%s product=%s", query.category, query.product)
-    if not settings.anthropic_api_key:
-        logger.info("Anthropic API key missing; using fallback platform selection.")
+    if not settings.openai_api_key:
+        logger.info("OpenAI API key missing; using fallback platform selection.")
         return _fallback_platforms(query).platforms
 
-    client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = AsyncOpenAI(api_key=settings.openai_api_key)
 
     try:
-        response = await client.messages.create(
-            model=MODEL_NAME,
-            system=SYSTEM_PROMPT,
-            max_tokens=512,
+        response = await client.responses.parse(
+            model=settings.openai_model,
+            input=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user", "content": query.model_dump_json()},
+            ],
+            text_format=DiscoveryResponse,
             temperature=0,
-            messages=[{"role": "user", "content": query.model_dump_json()}],
         )
-        payload = "\n".join(
-            block.text for block in response.content if getattr(block, "type", "") == "text"
-        ).strip()
-        parsed = DiscoveryResponse.model_validate(json.loads(_extract_json_block(payload)))
+        parsed = response.output_parsed
+        if parsed is None:
+            raise ValueError("OpenAI returned no parsed platform strategy payload.")
         if not parsed.platforms:
             raise ValueError("No platforms returned by LLM.")
         return parsed.platforms

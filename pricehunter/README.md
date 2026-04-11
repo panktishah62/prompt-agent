@@ -12,7 +12,7 @@ PriceHunter is a hybrid price comparison engine that searches e-commerce platfor
 
 ## Stack
 
-- Backend: FastAPI, Motor, MongoDB, Anthropic SDK, httpx
+- Backend: FastAPI, Motor, MongoDB, OpenAI SDK, httpx
 - Frontend: React 18, Vite, Tailwind CSS
 - Voice: Bland.ai
 - Vendor discovery: Google Places API
@@ -44,7 +44,7 @@ docker compose up --build
 
 ## Demo behavior
 
-- Missing Anthropic credentials falls back to heuristic query structuring and platform selection.
+- Missing OpenAI credentials falls back to heuristic query structuring and platform selection.
 - Missing Google Places credentials falls back to mock Indian vendor discovery.
 - Missing Bland.ai credentials or `MOCK_VOICE_CALLS=true` falls back to instant mock call transcripts.
 - Missing MongoDB does not break search; results still return and persistence logs a warning.

@@ -1,17 +1,15 @@
 from __future__ import annotations
 
-import json
 import logging
 import re
 
-from anthropic import AsyncAnthropic
+from openai import AsyncOpenAI
 
 from app.config import settings
 from app.models.schemas import StructuredQuery
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = "claude-sonnet-4-20250514"
 SYSTEM_PROMPT = """
 You are a query structuring assistant. Convert the user's natural language shopping query into a structured JSON object.
 
@@ -41,11 +39,6 @@ CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _extract_json_block(text: str) -> str:
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    return match.group(0) if match else text
-
-
 def _infer_category(raw_query: str) -> str:
     lowered = raw_query.lower()
     for category, keywords in CATEGORY_KEYWORDS.items():
@@ -66,7 +59,6 @@ def _infer_intent(raw_query: str) -> str:
 
 
 def _infer_location(raw_query: str) -> str:
-    tokens = re.split(r"\s+", raw_query.strip())
     if "near me" in raw_query.lower():
         return "near me"
     for trigger in ("in", "near", "at"):
@@ -97,33 +89,30 @@ def _best_effort_structure(raw_query: str) -> StructuredQuery:
     )
 
 
-def _parse_structured_query(payload: str, raw_query: str) -> StructuredQuery:
-    data = json.loads(_extract_json_block(payload))
-    data["raw_query"] = raw_query
-    return StructuredQuery.model_validate(data)
-
-
 async def structure_query(raw_query: str) -> StructuredQuery:
     logger.info("Structuring query: %s", raw_query)
-    if not settings.anthropic_api_key:
-        logger.info("Anthropic API key missing; using heuristic query structurer.")
+    if not settings.openai_api_key:
+        logger.info("OpenAI API key missing; using heuristic query structurer.")
         return _best_effort_structure(raw_query)
 
-    client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+    client = AsyncOpenAI(api_key=settings.openai_api_key)
     last_error: Exception | None = None
 
     for attempt in range(2):
         try:
-            response = await client.messages.create(
-                model=MODEL_NAME,
-                system=SYSTEM_PROMPT,
-                max_tokens=256,
+            response = await client.responses.parse(
+                model=settings.openai_model,
+                input=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": raw_query},
+                ],
+                text_format=StructuredQuery,
                 temperature=0,
-                messages=[{"role": "user", "content": raw_query}],
             )
-            text_blocks = [block.text for block in response.content if getattr(block, "type", "") == "text"]
-            payload = "\n".join(text_blocks).strip()
-            structured = _parse_structured_query(payload, raw_query)
+            structured = response.output_parsed
+            if structured is None:
+                raise ValueError("OpenAI returned no parsed StructuredQuery.")
+            structured.raw_query = raw_query
             logger.info("Structured query generated successfully on attempt %s", attempt + 1)
             return structured
         except Exception as exc:  # pragma: no cover - depends on external API

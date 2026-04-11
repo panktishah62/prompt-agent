@@ -1,10 +1,9 @@
 from __future__ import annotations
 
-import json
 import logging
 import re
 
-from anthropic import AsyncAnthropic
+from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 from app.config import settings
@@ -12,7 +11,6 @@ from app.models.schemas import UnifiedResult, VendorInfo
 
 logger = logging.getLogger(__name__)
 
-MODEL_NAME = "claude-sonnet-4-20250514"
 SYSTEM_PROMPT = """
 You are a data extraction assistant. Given a phone call transcript between an AI agent and a shop vendor, extract the following information as JSON:
 
@@ -34,11 +32,6 @@ class TranscriptExtraction(BaseModel):
     delivery_time: str | None = None
     notes: str | None = None
     confidence: float = 0.6
-
-
-def _extract_json_block(text: str) -> str:
-    match = re.search(r"\{.*\}", text, re.DOTALL)
-    return match.group(0) if match else text
 
 
 def _fallback_extract(transcript: str) -> TranscriptExtraction:
@@ -72,22 +65,23 @@ async def extract_from_transcript(transcript: str, vendor: VendorInfo, product: 
     logger.info("Extracting structured data from transcript for vendor=%s", vendor.name)
     extraction: TranscriptExtraction
 
-    if not settings.anthropic_api_key:
+    if not settings.openai_api_key:
         extraction = _fallback_extract(transcript)
     else:
-        client = AsyncAnthropic(api_key=settings.anthropic_api_key)
+        client = AsyncOpenAI(api_key=settings.openai_api_key)
         try:
-            response = await client.messages.create(
-                model=MODEL_NAME,
-                system=SYSTEM_PROMPT,
-                max_tokens=256,
+            response = await client.responses.parse(
+                model=settings.openai_model,
+                input=[
+                    {"role": "system", "content": SYSTEM_PROMPT},
+                    {"role": "user", "content": transcript},
+                ],
+                text_format=TranscriptExtraction,
                 temperature=0,
-                messages=[{"role": "user", "content": transcript}],
             )
-            payload = "\n".join(
-                block.text for block in response.content if getattr(block, "type", "") == "text"
-            ).strip()
-            extraction = TranscriptExtraction.model_validate(json.loads(_extract_json_block(payload)))
+            extraction = response.output_parsed
+            if extraction is None:
+                raise ValueError("OpenAI returned no parsed transcript extraction.")
         except Exception as exc:  # pragma: no cover - depends on external API
             logger.warning("Voice extraction failed, using fallback parser: %s", exc)
             extraction = _fallback_extract(transcript)
