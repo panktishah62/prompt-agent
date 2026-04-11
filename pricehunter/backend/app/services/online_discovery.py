@@ -26,7 +26,7 @@ Supported platforms include:
 - reliance_digital
 - meesho
 
-Pick 3 to 5 platforms based on the product category. Groceries should favor quick-commerce and grocery platforms. Electronics should favor Amazon India, Flipkart, Croma, and Reliance Digital. Clothing should favor Amazon India, Flipkart, and Meesho.
+Pick exactly 3 platforms based on the product category. Groceries should favor quick-commerce and grocery platforms. Electronics should favor Amazon India, Flipkart, Croma, and Reliance Digital. Clothing should favor Amazon India, Flipkart, and Meesho.
 
 Return JSON with this exact shape:
 {
@@ -84,7 +84,7 @@ def _fallback_platforms(query: StructuredQuery) -> DiscoveryResponse:
             ("JioMart", "jiomart"),
         ],
     }
-    selected = category_map.get(query.category, category_map["electronics"])
+    selected = category_map.get(query.category, category_map["electronics"])[:3]
     return DiscoveryResponse(
         platforms=[
             PlatformStrategy(
@@ -121,7 +121,18 @@ async def discover_platforms(query: StructuredQuery) -> list[PlatformStrategy]:
             raise ValueError("OpenAI returned no parsed platform strategy payload.")
         if not parsed.platforms:
             raise ValueError("No platforms returned by LLM.")
-        return parsed.platforms
+        deduped: list[PlatformStrategy] = []
+        seen_ids: set[str] = set()
+        for strategy in parsed.platforms:
+            if strategy.platform_id in seen_ids:
+                continue
+            deduped.append(strategy)
+            seen_ids.add(strategy.platform_id)
+            if len(deduped) == 3:
+                break
+        if not deduped:
+            raise ValueError("No usable platforms returned by LLM.")
+        return deduped
     except Exception as exc:  # pragma: no cover - depends on external API
         logger.warning("Online discovery failed, using fallback platforms: %s", exc)
         return _fallback_platforms(query).platforms

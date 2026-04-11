@@ -10,8 +10,12 @@ from app.services.platform_adapters import get_adapters
 logger = logging.getLogger(__name__)
 
 
-async def _run_adapter(adapter, strategy: PlatformStrategy) -> list[UnifiedResult]:
-    results = await adapter.search(strategy.search_query)
+async def _run_adapter(
+    adapter,
+    strategy: PlatformStrategy,
+    location: str | None,
+) -> list[UnifiedResult]:
+    results = await adapter.search(strategy.search_query, location=location)
     for result in results:
         result.name = strategy.platform_name
     return results
@@ -23,7 +27,7 @@ async def run(query: StructuredQuery) -> list[UnifiedResult]:
     adapters = get_adapters([strategy.platform_id for strategy in strategies], query.category)
 
     tasks = [
-        _run_adapter(adapter, strategy)
+        _run_adapter(adapter, strategy, query.location)
         for adapter, strategy in zip(adapters, strategies, strict=False)
     ]
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)

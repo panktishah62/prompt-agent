@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 
 import httpx
 
@@ -14,15 +16,62 @@ PLACES_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
 PLACE_DETAILS_URL = "https://places.googleapis.com/v1/places/{place_id}"
 
 
-def _queries_for_category(category: str, location: str) -> list[str]:
+CATEGORY_CONTEXT_TERMS: dict[str, tuple[str, ...]] = {
+    "groceries": ("grocery", "supermarket", "mart", "vegetable", "fruit", "dairy", "provision"),
+    "electronics": ("electronics", "mobile", "phone", "accessories", "appliance", "digital", "gadget"),
+    "clothing": ("clothing", "fashion", "garment", "boutique", "apparel", "wear"),
+    "medicine": ("pharmacy", "medical", "chemist", "drug", "hospital"),
+    "hardware": ("hardware", "tool", "electrical", "plumbing", "paint", "sanitary"),
+}
+
+
+def _extract_product_terms(product: str) -> list[str]:
+    tokens = re.findall(r"[a-zA-Z0-9]+", product.lower())
+    stop_words = {"best", "cheap", "cheapest", "for", "near", "me", "in", "the", "and"}
+    return [token for token in tokens if len(token) > 2 and token not in stop_words][:4]
+
+
+def _queries_for_category(product: str, category: str, location: str) -> list[str]:
+    location_text = location if location and location != "unknown" else "Rajkot"
     category_queries = {
-        "groceries": [f"grocery stores near {location}", f"vegetable vendors near {location}"],
-        "electronics": [f"electronics shops near {location}", f"mobile phone stores near {location}"],
-        "medicine": [f"pharmacies near {location}", f"medical stores near {location}"],
-        "hardware": [f"hardware stores near {location}", f"tool shops near {location}"],
-        "clothing": [f"clothing stores near {location}", f"garment shops near {location}"],
+        "groceries": [
+            f"{product} grocery store in {location_text}",
+            f"{product} supermarket in {location_text}",
+            f"grocery stores in {location_text}",
+        ],
+        "electronics": [
+            f"{product} store in {location_text}",
+            f"{product} dealer in {location_text}",
+            f"electronics shops in {location_text}",
+            f"mobile accessories store in {location_text}",
+        ],
+        "medicine": [
+            f"{product} pharmacy in {location_text}",
+            f"{product} medical store in {location_text}",
+            f"pharmacy in {location_text}",
+        ],
+        "hardware": [
+            f"{product} hardware store in {location_text}",
+            f"{product} tool shop in {location_text}",
+            f"hardware stores in {location_text}",
+        ],
+        "clothing": [
+            f"{product} clothing store in {location_text}",
+            f"{product} garment shop in {location_text}",
+            f"fashion store in {location_text}",
+        ],
     }
-    return category_queries.get(category, [f"{category} stores near {location}", f"{category} vendors near {location}"])
+    return category_queries.get(category, [f"{product} stores in {location_text}", f"{category} vendors in {location_text}"])
+
+
+def _candidate_score(vendor: VendorInfo, product: str, category: str) -> tuple[float, float, str]:
+    haystack = f"{vendor.name} {vendor.address}".lower()
+    product_terms = _extract_product_terms(product)
+    category_terms = CATEGORY_CONTEXT_TERMS.get(category, ())
+    product_hits = sum(1 for term in product_terms if term in haystack)
+    category_hits = sum(1 for term in category_terms if term in haystack)
+    rating = vendor.rating or 0.0
+    return (product_hits * 3 + category_hits * 1.5 + rating, rating, vendor.name)
 
 
 def _mock_vendors(product: str, category: str, location: str) -> list[VendorInfo]:
@@ -88,6 +137,29 @@ async def _fetch_place_phone(client: httpx.AsyncClient, place_id: str) -> str | 
     return payload.get("nationalPhoneNumber") or payload.get("internationalPhoneNumber")
 
 
+async def _place_to_vendor(client: httpx.AsyncClient, place: dict) -> VendorInfo | None:
+    place_id = place.get("id")
+    if not place_id:
+        return None
+
+    phone = await _fetch_place_phone(client, place_id)
+    if not phone:
+        return None
+
+    return VendorInfo(
+        name=place.get("displayName", {}).get("text", "Unknown Vendor"),
+        phone=phone,
+        address=place.get("formattedAddress", "Address unavailable"),
+        location={
+            "lat": place.get("location", {}).get("latitude"),
+            "lng": place.get("location", {}).get("longitude"),
+        },
+        place_id=place_id,
+        rating=place.get("rating"),
+        is_mock=False,
+    )
+
+
 async def discover_vendors(product: str, category: str, location: str) -> list[VendorInfo]:
     logger.info("Starting vendor discovery for %s in %s", product, location)
     if not settings.google_places_api_key:
@@ -97,7 +169,7 @@ async def discover_vendors(product: str, category: str, location: str) -> list[V
     try:
         async with httpx.AsyncClient() as client:
             coordinates = await _geocode_location(client, location)
-            search_queries = _queries_for_category(category, location)
+            search_queries = _queries_for_category(product, category, location)
 
             candidates: list[VendorInfo] = []
             for query in search_queries:
@@ -122,32 +194,25 @@ async def discover_vendors(product: str, category: str, location: str) -> list[V
                 )
                 response.raise_for_status()
                 payload = response.json()
-                for place in payload.get("places", []):
-                    place_id = place.get("id")
-                    if not place_id:
+                places = payload.get("places", [])
+                resolved = await asyncio.gather(
+                    *[_place_to_vendor(client, place) for place in places],
+                    return_exceptions=True,
+                )
+                for item in resolved:
+                    if isinstance(item, Exception):
+                        logger.warning("Failed to fetch phone details for a place: %s", item)
                         continue
-                    phone = await _fetch_place_phone(client, place_id)
-                    if not phone:
-                        continue
-                    candidates.append(
-                        VendorInfo(
-                            name=place.get("displayName", {}).get("text", "Unknown Vendor"),
-                            phone=phone,
-                            address=place.get("formattedAddress", "Address unavailable"),
-                            location={
-                                "lat": place.get("location", {}).get("latitude"),
-                                "lng": place.get("location", {}).get("longitude"),
-                            },
-                            place_id=place_id,
-                            rating=place.get("rating"),
-                            is_mock=False,
-                        )
-                    )
+                    if item is not None:
+                        candidates.append(item)
 
-            unique: dict[str, VendorInfo] = {vendor.phone: vendor for vendor in candidates}
+            unique: dict[str, VendorInfo] = {}
+            for vendor in candidates:
+                unique[vendor.place_id or vendor.phone] = vendor
+                unique[vendor.phone] = vendor
             vendors = sorted(
-                unique.values(),
-                key=lambda item: (item.rating or 0, item.name),
+                {vendor.place_id or vendor.phone: vendor for vendor in unique.values()}.values(),
+                key=lambda item: _candidate_score(item, product, category),
                 reverse=True,
             )[:10]
             if not vendors:
