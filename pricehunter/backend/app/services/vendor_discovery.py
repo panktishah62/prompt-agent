@@ -48,7 +48,7 @@ def _mock_vendors(product: str, category: str, location: str) -> list[VendorInfo
     ]
 
 
-async def _geocode_location(client: httpx.AsyncClient, location: str) -> tuple[float, float]:
+async def _geocode_location(client: httpx.AsyncClient, location: str) -> tuple[float, float] | None:
     response = await client.get(
         GEOCODE_URL,
         params={"address": location, "key": settings.google_places_api_key},
@@ -56,7 +56,21 @@ async def _geocode_location(client: httpx.AsyncClient, location: str) -> tuple[f
     )
     response.raise_for_status()
     payload = response.json()
-    coordinates = payload["results"][0]["geometry"]["location"]
+    results = payload.get("results") or []
+    if not results:
+        status = payload.get("status", "UNKNOWN")
+        error_message = payload.get("error_message")
+        detail = f"status={status}"
+        if error_message:
+            detail = f"{detail}, error={error_message}"
+        logger.warning("Geocoding returned no results for '%s' (%s)", location, detail)
+        return None
+
+    coordinates = results[0].get("geometry", {}).get("location")
+    if not coordinates:
+        logger.warning("Geocoding returned a result without coordinates for '%s'", location)
+        return None
+
     return coordinates["lat"], coordinates["lng"]
 
 
@@ -82,24 +96,28 @@ async def discover_vendors(product: str, category: str, location: str) -> list[V
 
     try:
         async with httpx.AsyncClient() as client:
-            lat, lng = await _geocode_location(client, location)
+            coordinates = await _geocode_location(client, location)
             search_queries = _queries_for_category(category, location)
 
             candidates: list[VendorInfo] = []
             for query in search_queries:
+                request_body = {
+                    "textQuery": query,
+                    "maxResultCount": 10,
+                }
+                if coordinates:
+                    lat, lng = coordinates
+                    request_body["locationBias"] = {
+                        "circle": {"center": {"latitude": lat, "longitude": lng}, "radius": 5000.0}
+                    }
+
                 response = await client.post(
                     PLACES_SEARCH_URL,
                     headers={
                         "X-Goog-Api-Key": settings.google_places_api_key,
                         "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location,places.rating",
                     },
-                    json={
-                        "textQuery": query,
-                        "locationBias": {
-                            "circle": {"center": {"latitude": lat, "longitude": lng}, "radius": 5000.0}
-                        },
-                        "maxResultCount": 10,
-                    },
+                    json=request_body,
                     timeout=25,
                 )
                 response.raise_for_status()
@@ -133,7 +151,7 @@ async def discover_vendors(product: str, category: str, location: str) -> list[V
                 reverse=True,
             )[:10]
             if not vendors:
-                raise ValueError("No callable vendors returned by Google Places.")
+                raise ValueError("No callable vendors returned by Google Places. Places may be missing phone numbers.")
             logger.info("Vendor discovery completed with %s vendors", len(vendors))
             return vendors
     except Exception as exc:  # pragma: no cover - external integration
