@@ -76,6 +76,17 @@ function ResultCard({ result, rank }) {
             {result.availability ? 'In stock' : 'Unavailable'}
           </span>
         </div>
+        {result.phone && (
+          <div className="flex items-center justify-between gap-4">
+            <span>Phone</span>
+            <a
+              href={`tel:${result.phone}`}
+              className="truncate text-right text-sky-200 transition hover:text-mint"
+            >
+              {result.phone}
+            </a>
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <span>Confidence</span>
           <span>{Math.round(result.confidence * 100)}%</span>
