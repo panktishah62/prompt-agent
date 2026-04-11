@@ -12,7 +12,7 @@ class Settings(BaseSettings):
     openai_api_key: str = ""
     openai_model: str = "gpt-4o-mini"
     serpapi_api_key: str = ""
-    serpapi_base_url: str = "https://serpapi.com/search"
+    serpapi_base_url: str = "https://serpapi.com/search.json"
     google_places_api_key: str = ""
     bland_ai_api_key: str = ""
     test_call_phone: str = ""
