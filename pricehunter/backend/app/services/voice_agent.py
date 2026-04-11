@@ -15,6 +15,26 @@ logger = logging.getLogger(__name__)
 BLAND_CALLS_URL = "https://api.bland.ai/v1/calls"
 
 
+def _call_destination_phone(vendor: VendorInfo) -> str:
+    return settings.test_call_phone.strip() or vendor.phone
+
+
+def _call_task(vendor: VendorInfo, product: str) -> str:
+    if settings.test_call_phone.strip():
+        return (
+            f"You are calling a test operator standing in for vendor {vendor.name}. "
+            f"Ask whether they have {product} in stock, what the current price is, and whether any "
+            "discount is available. Treat the caller's answers as the vendor's answers. Be polite and "
+            "professional. Speak in Hindi or English based on how they respond. Keep the call under 60 seconds."
+        )
+    return (
+        f"You are calling a shop to inquire about a product. Ask if they have {product} "
+        "in stock, what is their price, and if they can offer any discount. Be polite and "
+        "professional. Speak in Hindi or English based on how the vendor responds. "
+        "Keep the call under 60 seconds."
+    )
+
+
 def _mock_transcript(vendor: VendorInfo, product: str) -> str:
     lowered = product.lower()
     if any(keyword in lowered for keyword in ("tomato", "potato", "onion", "vegetable", "fruit", "milk", "rice")):
@@ -71,19 +91,22 @@ async def call_vendor(vendor: VendorInfo, product: str, api_key: str | None = No
             is_mock=True,
         )
 
-    logger.info("Triggering Bland.ai call for vendor=%s", vendor.name)
+    destination_phone = _call_destination_phone(vendor)
+    if settings.test_call_phone.strip():
+        logger.info(
+            "Triggering Bland.ai test call for vendor=%s via test phone=%s",
+            vendor.name,
+            destination_phone,
+        )
+    else:
+        logger.info("Triggering Bland.ai call for vendor=%s", vendor.name)
     async with httpx.AsyncClient() as client:
         response = await client.post(
             BLAND_CALLS_URL,
             headers={"Authorization": effective_key, "Content-Type": "application/json"},
             json={
-                "phone_number": vendor.phone,
-                "task": (
-                    f"You are calling a shop to inquire about a product. Ask if they have {product} "
-                    "in stock, what is their price, and if they can offer any discount. Be polite and "
-                    "professional. Speak in Hindi or English based on how the vendor responds. "
-                    "Keep the call under 60 seconds."
-                ),
+                "phone_number": destination_phone,
+                "task": _call_task(vendor, product),
                 "voice": "maya",
                 "wait_for_greeting": True,
                 "record": True,
@@ -92,6 +115,8 @@ async def call_vendor(vendor: VendorInfo, product: str, api_key: str | None = No
                     "vendor_name": vendor.name,
                     "product": product,
                     "vendor_phone": vendor.phone,
+                    "dialed_phone": destination_phone,
+                    "test_call_routing": bool(settings.test_call_phone.strip()),
                 },
                 "max_duration": 60,
             },

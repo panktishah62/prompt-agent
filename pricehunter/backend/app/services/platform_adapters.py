@@ -121,9 +121,10 @@ class PlatformAdapter(abc.ABC):
         )
 
     async def _search_live(self, query: str, location: str | None) -> list[UnifiedResult]:
-        search_queries = [query.strip()]
-        if self.platform_name.lower() not in query.lower():
-            search_queries.append(f"{query} {self.platform_name}")
+        effective_query = self._sanitize_live_query(query, location)
+        search_queries = [effective_query]
+        if self.platform_name.lower() not in effective_query.lower():
+            search_queries.append(f"{effective_query} {self.platform_name}")
 
         ranked_candidates: list[tuple[float, UnifiedResult]] = []
         seen_urls: set[str] = set()
@@ -146,7 +147,7 @@ class PlatformAdapter(abc.ABC):
                 )
                 response.raise_for_status()
                 payload = response.json()
-                for score, result in self._extract_live_candidates(payload, query):
+                for score, result in self._extract_live_candidates(payload, effective_query):
                     dedupe_key = result.url or f"{result.name}:{result.price}:{result.delivery_time}"
                     if dedupe_key in seen_urls:
                         continue
@@ -158,6 +159,31 @@ class PlatformAdapter(abc.ABC):
         ranked_candidates.sort(key=lambda item: item[0], reverse=True)
         return [result for _, result in ranked_candidates[:LIVE_RESULTS_PER_PLATFORM]]
 
+    def _sanitize_live_query(self, query: str, location: str | None) -> str:
+        cleaned = query
+        generic_patterns = [
+            r"\bcheapest\b",
+            r"\bcheap\b",
+            r"\bbest value\b",
+            r"\bbest\b",
+            r"\bfastest\b",
+            r"\bnearest\b",
+            r"\bnear me\b",
+            r"\bdelivery\b",
+            r"\bprice\b",
+        ]
+        for pattern in generic_patterns:
+            cleaned = re.sub(pattern, " ", cleaned, flags=re.IGNORECASE)
+
+        if location:
+            cleaned = re.sub(rf"\b{re.escape(location)}\b", " ", cleaned, flags=re.IGNORECASE)
+
+        for alias in self.source_aliases:
+            cleaned = re.sub(rf"\b{re.escape(alias)}\b", " ", cleaned, flags=re.IGNORECASE)
+
+        cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,-")
+        return cleaned or query.strip()
+
     def _extract_live_candidates(
         self,
         payload: dict[str, Any],
@@ -168,11 +194,14 @@ class PlatformAdapter(abc.ABC):
             if not isinstance(item, dict) or not self._matches_platform(item):
                 continue
 
+            title = str(item.get("title", "")).strip()
+            if not self._is_relevant_product_match(title, query):
+                continue
+
             price = self._extract_price(item)
             if price is None:
                 continue
 
-            title = str(item.get("title", "")).strip()
             delivery_time = self._extract_delivery_time(item)
             availability = self._extract_availability(item)
             notes = self._build_live_notes(item)
@@ -298,6 +327,9 @@ class PlatformAdapter(abc.ABC):
         return None
 
     def _query_tokens(self, query: str) -> list[str]:
+        normalized_query = query.lower()
+        normalized_query = re.sub(r"\bone\s+plus\b", "oneplus", normalized_query)
+        normalized_query = re.sub(r"(\d+)\s*(gb|tb)\b", r"\1\2", normalized_query)
         stop_words = {
             "the",
             "for",
@@ -313,9 +345,30 @@ class PlatformAdapter(abc.ABC):
         }
         return [
             token
-            for token in re.findall(r"[a-z0-9]+", query.lower())
+            for token in re.findall(r"[a-z0-9]+", normalized_query)
             if len(token) > 1 and token not in stop_words
         ]
+
+    def _is_relevant_product_match(self, title: str, query: str) -> bool:
+        title_tokens = set(self._query_tokens(title))
+        query_tokens = self._query_tokens(query)
+        if not query_tokens:
+            return True
+
+        required_storage_tokens = {token for token in query_tokens if token.endswith(("gb", "tb"))}
+        if required_storage_tokens and not required_storage_tokens <= title_tokens:
+            return False
+
+        variant_tokens = {"plus", "pro", "max", "mini", "ultra"}
+        query_variants = set(query_tokens) & variant_tokens
+        title_variants = title_tokens & variant_tokens
+        if title_variants - query_variants:
+            return False
+
+        query_core = [token for token in query_tokens if token not in required_storage_tokens | variant_tokens]
+        core_hits = sum(1 for token in query_core if token in title_tokens)
+        minimum_hits = min(len(query_core), 2)
+        return core_hits >= minimum_hits
 
     def _normalize_source(self, value: str) -> str:
         return re.sub(r"[^a-z0-9]+", " ", value.lower()).strip()
