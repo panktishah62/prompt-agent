@@ -26,6 +26,9 @@ async def _run_adapter(
 async def run(query: StructuredQuery) -> list[UnifiedResult]:
     logger.info("Starting online pipeline for %s", query.product)
     strategies = await discover_platforms(query)
+    if not strategies:
+        logger.info("No online platforms selected for %s", query.product)
+        return []
     adapters = get_adapters([strategy.platform_id for strategy in strategies], query.category)
 
     tasks = [

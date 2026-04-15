@@ -1,23 +1,66 @@
-import { useMemo, useReducer } from 'react'
+import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import Header from './components/Header'
-import SearchBar from './components/SearchBar'
 import LoadingState from './components/LoadingState'
 import ResultsList from './components/ResultsList'
+import ChatBubble from './components/ChatBubble'
+import ConversationSummary from './components/ConversationSummary'
+
+const initialMessages = [
+  {
+    role: 'assistant',
+    content:
+      'Tell me what you want to find. I will lock in the exact product or service, urgency, intent, and category before I search.',
+  },
+]
 
 const initialState = {
-  status: 'idle',
+  isLoading: false,
+  sessionId: '',
+  messages: initialMessages,
+  suggestedReplies: ['iPhone 16 128GB in Rajkot', 'Tomatoes 1kg near me', 'Daikin AC repair in Ahmedabad'],
   data: null,
   error: '',
+  conversationState: null,
 }
 
 function reducer(state, action) {
   switch (action.type) {
-    case 'SEARCH_START':
-      return { status: 'loading', data: null, error: '' }
-    case 'SEARCH_SUCCESS':
-      return { status: 'results', data: action.payload, error: '' }
-    case 'SEARCH_ERROR':
-      return { status: 'error', data: null, error: action.payload }
+    case 'SEND_START':
+      return {
+        ...state,
+        isLoading: true,
+        error: '',
+        messages: [...state.messages, { role: 'user', content: action.payload }],
+      }
+    case 'SEND_SUCCESS':
+      return {
+        ...state,
+        isLoading: false,
+        sessionId: action.payload.sessionId,
+        suggestedReplies: action.payload.suggestedReplies,
+        conversationState: action.payload.conversationState,
+        data: action.payload.results ?? state.data,
+        messages: [
+          ...state.messages,
+          { role: 'assistant', content: action.payload.assistantMessage },
+        ],
+      }
+    case 'SEND_ERROR':
+      return {
+        ...state,
+        isLoading: false,
+        error: action.payload,
+      }
+    case 'RESET_RESULTS':
+      return {
+        ...state,
+        data: null,
+      }
+    case 'RESET_SESSION':
+      return {
+        ...initialState,
+        messages: [...initialMessages],
+      }
     default:
       return state
   }
@@ -25,46 +68,75 @@ function reducer(state, action) {
 
 function App() {
   const [state, dispatch] = useReducer(reducer, initialState)
+  const [input, setInput] = useState('')
+  const messagesEndRef = useRef(null)
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [state.messages, state.isLoading])
 
   const headline = useMemo(() => {
-    if (state.status === 'results' && state.data?.query?.product) {
-      return `Best live price paths for ${state.data.query.product}`
-    }
-    return 'Search once. Compare everywhere.'
-  }, [state.data, state.status])
+    const product = state.conversationState?.product || state.data?.query?.product
+    return product ? `Find the best path for ${product}` : 'Chat once. Search smarter.'
+  }, [state.conversationState?.product, state.data?.query?.product])
 
-  const handleSearch = async ({ query, location }) => {
-    dispatch({ type: 'SEARCH_START' })
+  const handleSend = async (message) => {
+    const trimmed = message.trim()
+    if (!trimmed || state.isLoading) {
+      return
+    }
+
+    dispatch({ type: 'SEND_START', payload: trimmed })
+    setInput('')
 
     const controller = new AbortController()
     const timeoutId = window.setTimeout(() => controller.abort(), 120000)
 
     try {
       const response = await fetch(
-        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/search`,
+        `${import.meta.env.VITE_API_URL || 'http://localhost:8000'}/api/chat/message`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query, location }),
+          body: JSON.stringify({
+            message: trimmed,
+            session_id: state.sessionId || undefined,
+          }),
           signal: controller.signal,
         },
       )
 
       if (!response.ok) {
-        throw new Error(`Search failed with status ${response.status}`)
+        throw new Error(`Chat failed with status ${response.status}`)
       }
 
       const payload = await response.json()
-      dispatch({ type: 'SEARCH_SUCCESS', payload })
+      dispatch({
+        type: 'SEND_SUCCESS',
+        payload: {
+          sessionId: payload.session_id,
+          assistantMessage: payload.assistant_message,
+          suggestedReplies: payload.suggested_replies || [],
+          conversationState: payload.state,
+          results: payload.results || null,
+        },
+      })
     } catch (error) {
-      const message =
-        error.name === 'AbortError'
-          ? 'The search took longer than 120 seconds. Try mock mode or a narrower query.'
-          : 'Something went wrong while searching. Please try again in a moment.'
-      dispatch({ type: 'SEARCH_ERROR', payload: message })
+      dispatch({
+        type: 'SEND_ERROR',
+        payload:
+          error.name === 'AbortError'
+            ? 'This step took longer than 120 seconds. Please try again or narrow the request.'
+            : 'I hit a problem while continuing the conversation. Please try that message again.',
+      })
     } finally {
       window.clearTimeout(timeoutId)
     }
+  }
+
+  const handleSubmit = (event) => {
+    event.preventDefault()
+    handleSend(input)
   }
 
   return (
@@ -74,50 +146,116 @@ function App() {
 
       <Header />
 
-      <main className="relative mx-auto flex min-h-[calc(100vh-5rem)] w-full max-w-7xl flex-col px-4 pb-16 pt-10 sm:px-6 lg:px-8">
-        <section className="mx-auto w-full max-w-5xl">
-          <div className="mb-8 text-center">
-            <p className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.35em] text-mint/80 shadow-soft">
-              Hybrid Price Engine
-            </p>
-            <h1 className="mt-6 font-display text-5xl font-black tracking-tight text-white sm:text-6xl">
-              {headline}
-            </h1>
-            <p className="mx-auto mt-4 max-w-3xl text-base text-slate-300 sm:text-lg">
-              Online marketplaces and local vendors, ranked together by price, speed, and confidence.
-            </p>
+      <main className="relative mx-auto w-full max-w-7xl px-4 pb-16 pt-10 sm:px-6 lg:px-8">
+        <section className="mx-auto max-w-6xl text-center">
+          <p className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.35em] text-mint/80 shadow-soft">
+            Conversational Search Intake
+          </p>
+          <h1 className="mt-6 font-display text-5xl font-black tracking-tight text-white sm:text-6xl">
+            {headline}
+          </h1>
+          <p className="mx-auto mt-4 max-w-3xl text-base text-slate-300 sm:text-lg">
+            I&apos;ll ask just enough to make the search precise, then decide whether to search online, offline, or both.
+          </p>
+        </section>
+
+        <section className="mt-10 grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
+          <div className="rounded-[2rem] border border-white/10 bg-white/5 p-5 shadow-soft backdrop-blur">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
+              <div>
+                <p className="text-xs uppercase tracking-[0.3em] text-mint/80">Assistant</p>
+                <h2 className="mt-2 font-display text-2xl font-black text-white">PriceHunter Chat</h2>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.24em] text-slate-300">
+                  Guided intake
+                </div>
+                <button
+                  type="button"
+                  onClick={() => dispatch({ type: 'RESET_SESSION' })}
+                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.24em] text-slate-300 transition hover:border-mint/30 hover:text-white"
+                >
+                  New search
+                </button>
+              </div>
+            </div>
+
+            <div className="mt-5 h-[28rem] space-y-4 overflow-y-auto pr-1">
+              {state.messages.map((message, index) => (
+                <ChatBubble key={`${message.role}-${index}`} role={message.role} content={message.content} />
+              ))}
+              {state.isLoading && (
+                <ChatBubble
+                  role="assistant"
+                  content="Working through that now. I’ll either ask the next question or start the search."
+                />
+              )}
+              <div ref={messagesEndRef} />
+            </div>
+
+            {state.suggestedReplies.length > 0 && (
+              <div className="mt-5 flex flex-wrap gap-2">
+                {state.suggestedReplies.map((reply) => (
+                  <button
+                    key={reply}
+                    type="button"
+                    onClick={() => handleSend(reply)}
+                    disabled={state.isLoading}
+                    className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 transition hover:border-mint/30 hover:bg-mint/10 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {reply}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <form onSubmit={handleSubmit} className="mt-5 flex gap-3">
+              <input
+                value={input}
+                onChange={(event) => setInput(event.target.value)}
+                placeholder="Reply here..."
+                className="w-full rounded-[1.4rem] border border-white/10 bg-ink-soft px-4 py-4 text-sm text-white outline-none transition focus:border-mint/60 focus:ring-2 focus:ring-mint/20"
+              />
+              <button
+                type="submit"
+                disabled={state.isLoading || !input.trim()}
+                className="rounded-[1.4rem] bg-[linear-gradient(135deg,#00ff88,#00b8ff)] px-5 py-4 font-display text-sm font-black uppercase tracking-[0.22em] text-ink transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Send
+              </button>
+            </form>
+
+            {state.error && (
+              <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+                {state.error}
+              </div>
+            )}
           </div>
 
-          <SearchBar onSearch={handleSearch} isLoading={state.status === 'loading'} />
+          <div className="space-y-6">
+            <ConversationSummary state={state.conversationState} />
 
-          {state.status === 'idle' && (
-            <section className="mt-10 grid gap-4 md:grid-cols-3">
-              {[
-                'Online marketplaces in parallel',
-                'Nearby vendors discovered and called',
-                'One ranked result set tuned to your intent',
-              ].map((item) => (
-                <div
-                  key={item}
-                  className="rounded-3xl border border-white/10 bg-white/5 p-5 text-left shadow-soft backdrop-blur"
-                >
-                  <p className="text-xs uppercase tracking-[0.3em] text-slate-400">PriceHunter Signal</p>
-                  <p className="mt-3 text-lg font-semibold text-white">{item}</p>
+            {state.isLoading && <LoadingState />}
+
+            {!state.isLoading && state.data && <ResultsList data={state.data} />}
+
+            {!state.isLoading && !state.data && (
+              <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6 shadow-soft backdrop-blur">
+                <p className="text-xs uppercase tracking-[0.3em] text-mint/80">What happens next</p>
+                <div className="mt-4 grid gap-3 md:grid-cols-3">
+                  {[
+                    'I confirm the exact item or service so the search is specific enough to trust.',
+                    'I capture urgency and intent before search strategy is decided.',
+                    'Then I run online, offline, or both and rank the results together.',
+                  ].map((item) => (
+                    <div key={item} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-200">
+                      {item}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </section>
-          )}
-
-          {state.status === 'loading' && <LoadingState />}
-
-          {state.status === 'error' && (
-            <div className="mt-10 rounded-3xl border border-rose-500/30 bg-rose-500/10 p-6 text-rose-100 shadow-soft">
-              <p className="font-display text-2xl font-bold">Search interrupted</p>
-              <p className="mt-2 text-sm text-rose-100/90">{state.error}</p>
-            </div>
-          )}
-
-          {state.status === 'results' && <ResultsList data={state.data} />}
+              </section>
+            )}
+          </div>
         </section>
       </main>
     </div>

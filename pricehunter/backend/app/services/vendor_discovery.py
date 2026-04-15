@@ -22,6 +22,7 @@ CATEGORY_CONTEXT_TERMS: dict[str, tuple[str, ...]] = {
     "clothing": ("clothing", "fashion", "garment", "boutique", "apparel", "wear"),
     "medicine": ("pharmacy", "medical", "chemist", "drug", "hospital"),
     "hardware": ("hardware", "tool", "electrical", "plumbing", "paint", "sanitary"),
+    "services": ("service", "repair", "cleaning", "salon", "clinic", "plumber", "electrician"),
 }
 
 
@@ -60,6 +61,11 @@ def _queries_for_category(product: str, category: str, location: str) -> list[st
             f"{product} garment shop in {location_text}",
             f"fashion store in {location_text}",
         ],
+        "services": [
+            f"{product} service in {location_text}",
+            f"{product} provider in {location_text}",
+            f"{product} near {location_text}",
+        ],
     }
     return category_queries.get(category, [f"{product} stores in {location_text}", f"{category} vendors in {location_text}"])
 
@@ -76,13 +82,22 @@ def _candidate_score(vendor: VendorInfo, product: str, category: str) -> tuple[f
 
 def _mock_vendors(product: str, category: str, location: str) -> list[VendorInfo]:
     city = location if location and location != "unknown" else "Rajkot"
-    seeds = [
-        ("Shree Krishna Traders", "+919825001245", f"Yagnik Road, {city}", 4.6),
-        ("Patel Brothers Market", "+919723450981", f"Kalawad Road, {city}", 4.4),
-        ("Navkar Sales", "+919998112233", f"University Road, {city}", 4.5),
-        ("Om Sai Retail", "+919879901122", f"Race Course, {city}", 4.3),
-        ("Mahavir Storefront", "+918866554433", f"Amin Marg, {city}", 4.2),
-    ]
+    if category == "services":
+        seeds = [
+            ("Urban Assist Services", "+919825001245", f"Yagnik Road, {city}", 4.6),
+            ("SwiftFix Professionals", "+919723450981", f"Kalawad Road, {city}", 4.4),
+            ("CarePoint Home Services", "+919998112233", f"University Road, {city}", 4.5),
+            ("Om Sai Service Hub", "+919879901122", f"Race Course, {city}", 4.3),
+            ("Mahavir Local Experts", "+918866554433", f"Amin Marg, {city}", 4.2),
+        ]
+    else:
+        seeds = [
+            ("Shree Krishna Traders", "+919825001245", f"Yagnik Road, {city}", 4.6),
+            ("Patel Brothers Market", "+919723450981", f"Kalawad Road, {city}", 4.4),
+            ("Navkar Sales", "+919998112233", f"University Road, {city}", 4.5),
+            ("Om Sai Retail", "+919879901122", f"Race Course, {city}", 4.3),
+            ("Mahavir Storefront", "+918866554433", f"Amin Marg, {city}", 4.2),
+        ]
     return [
         VendorInfo(
             name=name,

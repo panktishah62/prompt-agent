@@ -6,7 +6,7 @@ import time
 from typing import Optional
 
 from app.database import queries_collection, results_collection
-from app.models.schemas import SearchResponse, StructuredQuery, UnifiedResult
+from app.models.schemas import SearchResponse, SearchStrategy, StructuredQuery, UnifiedResult
 from app.services import comparator, offline_pipeline, online_pipeline, query_structurer
 
 logger = logging.getLogger(__name__)
@@ -21,19 +21,30 @@ async def store_results(query: StructuredQuery, results: list[UnifiedResult]) ->
         logger.warning("Failed to store results in MongoDB: %s", exc)
 
 
-async def run_search(raw_query: str, location: Optional[str] = None) -> SearchResponse:
+async def run_search_structured(
+    structured_query: StructuredQuery,
+    search_strategy: SearchStrategy = "both",
+) -> SearchResponse:
     start_time = time.time()
-    logger.info("Running orchestrated search for query=%s", raw_query)
-
-    structured_query = await query_structurer.structure_query(raw_query)
-    if location:
-        structured_query.location = location
-
-    online_results, offline_results = await asyncio.gather(
-        online_pipeline.run(structured_query),
-        offline_pipeline.run(structured_query),
-        return_exceptions=True,
+    logger.info(
+        "Running orchestrated search for product=%s strategy=%s",
+        structured_query.product,
+        search_strategy,
     )
+
+    online_results: list[UnifiedResult] | Exception = []
+    offline_results: list[UnifiedResult] | Exception = []
+
+    if search_strategy == "both":
+        online_results, offline_results = await asyncio.gather(
+            online_pipeline.run(structured_query),
+            offline_pipeline.run(structured_query),
+            return_exceptions=True,
+        )
+    elif search_strategy == "online":
+        online_results = await online_pipeline.run(structured_query)
+    else:
+        offline_results = await offline_pipeline.run(structured_query)
 
     if isinstance(online_results, Exception):
         logger.warning("Online pipeline failed: %s", online_results)
@@ -62,4 +73,18 @@ async def run_search(raw_query: str, location: Optional[str] = None) -> SearchRe
         online_count=len(online_results),
         offline_count=len(offline_results),
         total_time_seconds=round(total_time, 2),
+        search_strategy=search_strategy,
     )
+
+
+async def run_search(raw_query: str, location: Optional[str] = None) -> SearchResponse:
+    start_time = time.time()
+    logger.info("Running orchestrated search for query=%s", raw_query)
+
+    structured_query = await query_structurer.structure_query(raw_query)
+    if location:
+        structured_query.location = location
+
+    result = await run_search_structured(structured_query, search_strategy="both")
+    result.total_time_seconds = round(time.time() - start_time, 2)
+    return result

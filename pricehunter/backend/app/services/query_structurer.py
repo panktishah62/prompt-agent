@@ -6,7 +6,7 @@ import re
 from openai import AsyncOpenAI
 
 from app.config import settings
-from app.models.schemas import StructuredQuery
+from app.models.schemas import StructuredQuery, UrgencyOption
 
 logger = logging.getLogger(__name__)
 
@@ -15,17 +15,18 @@ You are a query structuring assistant. Convert the user's natural language shopp
 
 Return ONLY valid JSON with these exact fields:
 - "product": the specific item they want (string)
-- "category": broad category like "groceries", "electronics", "clothing", "medicine", "hardware" (string)
+- "category": broad category like "groceries", "electronics", "clothing", "medicine", "hardware", or "services" (string)
 - "location": the city or area mentioned, or "unknown" if not specified (string)
 - "intent": one of "cheapest", "fastest", "best_value", "nearest" — infer from context (string)
+- "urgency": one of "immediate", "1-2 days", "10 days", "no rush" — infer from context and default to "immediate" if missing
 - "raw_query": the original query repeated verbatim (string)
 
 Examples:
 User: "I need cheap tomatoes in Rajkot"
-Output: {"product": "tomatoes", "category": "groceries", "location": "Rajkot", "intent": "cheapest", "raw_query": "I need cheap tomatoes in Rajkot"}
+Output: {"product": "tomatoes", "category": "groceries", "location": "Rajkot", "intent": "cheapest", "urgency": "immediate", "raw_query": "I need cheap tomatoes in Rajkot"}
 
 User: "fastest delivery for iPhone 15 pro max"
-Output: {"product": "iPhone 15 Pro Max", "category": "electronics", "location": "unknown", "intent": "fastest", "raw_query": "fastest delivery for iPhone 15 pro max"}
+Output: {"product": "iPhone 15 Pro Max", "category": "electronics", "location": "unknown", "intent": "fastest", "urgency": "immediate", "raw_query": "fastest delivery for iPhone 15 pro max"}
 
 Return ONLY the JSON object, no markdown, no explanation.
 """.strip()
@@ -104,10 +105,24 @@ CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
         "nail",
         "tap",
     ),
+    "services": (
+        "repair",
+        "service",
+        "cleaning",
+        "plumber",
+        "electrician",
+        "salon",
+        "spa",
+        "doctor",
+        "dentist",
+        "carpenter",
+        "installation",
+        "massage",
+    ),
 }
 
 
-def _infer_category(raw_query: str) -> str:
+def infer_category(raw_query: str) -> str:
     lowered = raw_query.lower()
     for category, keywords in CATEGORY_KEYWORDS.items():
         if any(keyword in lowered for keyword in keywords):
@@ -115,7 +130,7 @@ def _infer_category(raw_query: str) -> str:
     return "groceries" if any(token in lowered for token in ("kg", "fresh", "near me")) else "electronics"
 
 
-def _infer_intent(raw_query: str) -> str:
+def infer_intent(raw_query: str) -> str:
     lowered = raw_query.lower()
     if any(word in lowered for word in ("cheap", "cheapest", "lowest", "budget")):
         return "cheapest"
@@ -126,7 +141,7 @@ def _infer_intent(raw_query: str) -> str:
     return "best_value"
 
 
-def _infer_location(raw_query: str) -> str:
+def infer_location(raw_query: str) -> str:
     if "near me" in raw_query.lower():
         return "near me"
     for trigger in ("in", "near", "at"):
@@ -135,7 +150,7 @@ def _infer_location(raw_query: str) -> str:
     return "unknown"
 
 
-def _infer_product(raw_query: str) -> str:
+def infer_product(raw_query: str) -> str:
     location_stripped = re.split(r"\b(?:near me|near|in|at)\b", raw_query, maxsplit=1, flags=re.IGNORECASE)[0]
     cleaned = re.sub(
         r"\b(cheapest|cheap|fastest|best|best value|near|near me|in|find|get|need|buy|delivery|for)\b",
@@ -147,12 +162,26 @@ def _infer_product(raw_query: str) -> str:
     return cleaned or raw_query.strip()
 
 
+def infer_urgency(raw_query: str) -> UrgencyOption:
+    lowered = raw_query.lower()
+    if any(token in lowered for token in ("immediate", "right now", "asap", "today", "urgent")):
+        return "immediate"
+    if any(token in lowered for token in ("1-2 days", "1 / 2 days", "1 or 2 days", "tomorrow", "day after")):
+        return "1-2 days"
+    if any(token in lowered for token in ("10 days", "ten days", "next week", "week or so")):
+        return "10 days"
+    if any(token in lowered for token in ("no rush", "flexible", "anytime", "whenever")):
+        return "no rush"
+    return "immediate"
+
+
 def _best_effort_structure(raw_query: str) -> StructuredQuery:
     return StructuredQuery(
-        product=_infer_product(raw_query),
-        category=_infer_category(raw_query),
-        location=_infer_location(raw_query),
-        intent=_infer_intent(raw_query),
+        product=infer_product(raw_query),
+        category=infer_category(raw_query),
+        location=infer_location(raw_query),
+        intent=infer_intent(raw_query),
+        urgency=infer_urgency(raw_query),
         raw_query=raw_query,
     )
 

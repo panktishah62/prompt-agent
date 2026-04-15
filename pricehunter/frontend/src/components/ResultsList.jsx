@@ -71,6 +71,10 @@ function ResultsList({ data }) {
               {data.online_count} online, {data.offline_count} offline. Ranked for{' '}
               <span className="text-white">{data.query.intent.replace('_', ' ')}</span>.
             </p>
+            <p className="mt-2 text-sm text-slate-400">
+              Urgency: <span className="text-slate-200">{data.query.urgency}</span> | Strategy:{' '}
+              <span className="text-slate-200">{data.search_strategy}</span>
+            </p>
           </div>
 
           <div className="grid gap-3 sm:grid-cols-2">

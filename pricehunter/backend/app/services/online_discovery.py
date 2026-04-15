@@ -26,7 +26,7 @@ Supported platforms include:
 - reliance_digital
 - meesho
 
-Pick exactly 3 platforms based on the product category. Groceries should favor quick-commerce and grocery platforms. Electronics should favor Amazon India, Flipkart, Croma, and Reliance Digital. Clothing should favor Amazon India, Flipkart, and Meesho.
+Pick up to 3 platforms based on the product category. Groceries should favor quick-commerce and grocery platforms. Electronics should favor Amazon India, Flipkart, Croma, and Reliance Digital. Clothing should favor Amazon India, Flipkart, and Meesho. If the query is primarily for a local service with no obvious e-commerce platform fit, return an empty list.
 
 Return JSON with this exact shape:
 {
@@ -83,6 +83,7 @@ def _fallback_platforms(query: StructuredQuery) -> DiscoveryResponse:
             ("Flipkart", "flipkart"),
             ("JioMart", "jiomart"),
         ],
+        "services": [],
     }
     selected = category_map.get(query.category, category_map["electronics"])[:3]
     return DiscoveryResponse(
@@ -100,6 +101,9 @@ def _fallback_platforms(query: StructuredQuery) -> DiscoveryResponse:
 
 async def discover_platforms(query: StructuredQuery) -> list[PlatformStrategy]:
     logger.info("Discovering platforms for category=%s product=%s", query.category, query.product)
+    if query.category == "services":
+        logger.info("Services category detected; skipping online platform discovery.")
+        return []
     if not settings.openai_api_key:
         logger.info("OpenAI API key missing; using fallback platform selection.")
         return _fallback_platforms(query).platforms
