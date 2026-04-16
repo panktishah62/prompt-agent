@@ -25,8 +25,11 @@ Supported platforms include:
 - croma
 - reliance_digital
 - meesho
+- urban_company
+- justdial
+- indiamart
 
-Pick up to 3 platforms based on the product category. Groceries should favor quick-commerce and grocery platforms. Electronics should favor Amazon India, Flipkart, Croma, and Reliance Digital. Clothing should favor Amazon India, Flipkart, and Meesho. If the query is primarily for a local service with no obvious e-commerce platform fit, return an empty list.
+Pick up to 3 platforms based on the product category. Groceries should favor quick-commerce and grocery platforms. Electronics should favor Amazon India, Flipkart, Croma, and Reliance Digital. Clothing should favor Amazon India, Flipkart, and Meesho. Services should favor Urban Company, Justdial, and IndiaMART style discovery.
 
 Return JSON with this exact shape:
 {
@@ -83,7 +86,11 @@ def _fallback_platforms(query: StructuredQuery) -> DiscoveryResponse:
             ("Flipkart", "flipkart"),
             ("JioMart", "jiomart"),
         ],
-        "services": [],
+        "services": [
+            ("Urban Company", "urban_company"),
+            ("Justdial", "justdial"),
+            ("IndiaMART", "indiamart"),
+        ],
     }
     selected = category_map.get(query.category, category_map["electronics"])[:3]
     return DiscoveryResponse(
@@ -101,9 +108,6 @@ def _fallback_platforms(query: StructuredQuery) -> DiscoveryResponse:
 
 async def discover_platforms(query: StructuredQuery) -> list[PlatformStrategy]:
     logger.info("Discovering platforms for category=%s product=%s", query.category, query.product)
-    if query.category == "services":
-        logger.info("Services category detected; skipping online platform discovery.")
-        return []
     if not settings.openai_api_key:
         logger.info("OpenAI API key missing; using fallback platform selection.")
         return _fallback_platforms(query).platforms

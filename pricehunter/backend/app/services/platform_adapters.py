@@ -107,10 +107,11 @@ class PlatformAdapter(abc.ABC):
         notes: str | None = None,
         is_mock: bool,
         confidence: float | None = None,
+        name: str | None = None,
     ) -> UnifiedResult:
         return UnifiedResult(
             source_type="online",
-            name=self.platform_name,
+            name=name or self.platform_name,
             price=round(price, 2) if price is not None else None,
             delivery_time=delivery_time,
             availability=availability,
@@ -140,7 +141,7 @@ class PlatformAdapter(abc.ABC):
                         "google_domain": "google.co.in",
                         "gl": "in",
                         "hl": "en",
-                        "location": location or "India",
+                        "location": self._effective_location(location),
                         "no_cache": "true",
                     },
                     timeout=SERPAPI_TIMEOUT_SECONDS,
@@ -184,6 +185,14 @@ class PlatformAdapter(abc.ABC):
         cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,-")
         return cleaned or query.strip()
 
+    def _effective_location(self, location: str | None) -> str:
+        if not location:
+            return "India"
+        lowered = location.strip().lower()
+        if lowered in {"unknown", "near me", "unspecified"}:
+            return "India"
+        return location
+
     def _extract_live_candidates(
         self,
         payload: dict[str, Any],
@@ -191,7 +200,7 @@ class PlatformAdapter(abc.ABC):
     ) -> list[tuple[float, UnifiedResult]]:
         results: list[tuple[float, UnifiedResult]] = []
         for item in payload.get("shopping_results", []):
-            if not isinstance(item, dict) or not self._matches_platform(item):
+            if not isinstance(item, dict):
                 continue
 
             title = str(item.get("title", "")).strip()
@@ -202,10 +211,12 @@ class PlatformAdapter(abc.ABC):
             if price is None:
                 continue
 
+            platform_matched = self._matches_platform(item)
             delivery_time = self._extract_delivery_time(item)
             availability = self._extract_availability(item)
             notes = self._build_live_notes(item)
-            confidence = self._live_confidence(item, query)
+            confidence = self._live_confidence(item, query, platform_matched)
+            display_name = self._extract_source_name(item) or self.platform_name
             result = self._build_result(
                 price=price,
                 delivery_time=delivery_time,
@@ -214,16 +225,25 @@ class PlatformAdapter(abc.ABC):
                 notes=notes,
                 is_mock=False,
                 confidence=confidence,
+                name=display_name,
             )
-            results.append((self._candidate_score(item, query, confidence), result))
+            results.append((self._candidate_score(item, query, confidence, platform_matched), result))
 
         return results
 
-    def _candidate_score(self, item: dict[str, Any], query: str, confidence: float) -> float:
+    def _candidate_score(
+        self,
+        item: dict[str, Any],
+        query: str,
+        confidence: float,
+        platform_matched: bool,
+    ) -> float:
         title = str(item.get("title", "")).lower()
         query_tokens = self._query_tokens(query)
         title_hits = sum(1 for token in query_tokens if token in title)
         score = confidence * 10 + title_hits * 1.5
+        if platform_matched:
+            score += 1.0
         if self._extract_delivery_time(item):
             score += 0.4
         if self._extract_url(item):
@@ -250,11 +270,13 @@ class PlatformAdapter(abc.ABC):
         url = (self._extract_url(item) or "").lower()
         return any(domain in url for domain in domains)
 
-    def _live_confidence(self, item: dict[str, Any], query: str) -> float:
-        confidence = self._confidence() + 0.08
+    def _live_confidence(self, item: dict[str, Any], query: str, platform_matched: bool) -> float:
+        confidence = self._confidence() + 0.04
         title = str(item.get("title", "")).lower()
         title_hits = sum(1 for token in self._query_tokens(query) if token in title)
         confidence += min(title_hits * 0.03, 0.12)
+        if platform_matched:
+            confidence += 0.06
         if self._extract_delivery_time(item):
             confidence += 0.03
         return min(round(confidence, 2), 0.99)
@@ -315,6 +337,13 @@ class PlatformAdapter(abc.ABC):
                 return value.strip()
         return None
 
+    def _extract_source_name(self, item: dict[str, Any]) -> str | None:
+        for key in ("source", "seller", "merchant", "store"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return None
+
     def _extract_price(self, item: dict[str, Any]) -> float | None:
         for key in ("extracted_price", "price"):
             value = item.get(key)
@@ -362,12 +391,17 @@ class PlatformAdapter(abc.ABC):
         variant_tokens = {"plus", "pro", "max", "mini", "ultra"}
         query_variants = set(query_tokens) & variant_tokens
         title_variants = title_tokens & variant_tokens
-        if title_variants - query_variants:
+        if query_variants and not query_variants <= title_variants:
+            return False
+        if title_variants - query_variants and query_variants:
             return False
 
         query_core = [token for token in query_tokens if token not in required_storage_tokens | variant_tokens]
         core_hits = sum(1 for token in query_core if token in title_tokens)
-        minimum_hits = min(len(query_core), 2)
+        if len(query_core) <= 2:
+            minimum_hits = 1
+        else:
+            minimum_hits = min(len(query_core), 2)
         return core_hits >= minimum_hits
 
     def _normalize_source(self, value: str) -> str:

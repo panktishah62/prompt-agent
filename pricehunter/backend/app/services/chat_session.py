@@ -171,13 +171,7 @@ def _question_for_state(state: ConversationState) -> str:
 
 
 def _decide_search_strategy(state: ConversationState) -> SearchStrategy:
-    if state.category == "services":
-        return "offline"
-    if state.intent == "fastest":
-        return "both"
-    if state.urgency in {"immediate", "1-2 days"}:
-        return "both"
-    return "online"
+    return "both"
 
 
 async def _merge_message_into_state(state: ConversationState, message: str) -> None:
