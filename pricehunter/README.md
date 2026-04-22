@@ -46,6 +46,42 @@ PriceHunter is a hybrid price comparison engine that searches e-commerce platfor
 docker compose up --build
 ```
 
+## Fast deploy
+
+The fastest deployment path for the current app is:
+
+1. MongoDB Atlas for the database
+2. Render web service for the backend
+3. Render static site for the frontend
+
+This repo includes [render.yaml](/Users/panktishah/Desktop/prompt-agent/pricehunter/render.yaml) for that setup.
+
+### Production environment variables
+
+Backend:
+
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL=gpt-4o-mini`
+- `SERPAPI_API_KEY`
+- `GOOGLE_PLACES_API_KEY`
+- `BLAND_AI_API_KEY`
+- `TEST_CALL_PHONE`
+- `FRONTEND_ORIGINS=https://your-frontend-domain.onrender.com`
+- `MONGODB_URL=mongodb+srv://...`
+- `DATABASE_NAME=pricehunter`
+- `BLAND_WEBHOOK_URL=https://your-backend-domain.onrender.com/api/webhooks/voice`
+- `MOCK_VOICE_CALLS=true` or `false`
+
+Frontend:
+
+- `VITE_API_URL=https://your-backend-domain.onrender.com`
+
+### Deploy notes
+
+- If you are not using Docker, do not use `mongodb://mongodb:27017`; use your Atlas connection string.
+- `FRONTEND_ORIGINS` accepts a comma-separated list if you need both production and preview URLs.
+- Keep `MOCK_VOICE_CALLS=true` for the fastest safe launch, then turn it off after Bland is configured.
+
 ## Demo behavior
 
 - Missing OpenAI credentials falls back to heuristic query structuring and platform selection.

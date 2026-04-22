@@ -1,0 +1,44 @@
+services:
+  - type: web
+    name: pricehunter-api
+    runtime: python
+    rootDir: pricehunter/backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    plan: free
+    region: singapore
+    healthCheckPath: /health
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_MODEL
+        value: gpt-4o-mini
+      - key: SERPAPI_API_KEY
+        sync: false
+      - key: GOOGLE_PLACES_API_KEY
+        sync: false
+      - key: BLAND_AI_API_KEY
+        sync: false
+      - key: TEST_CALL_PHONE
+        sync: false
+      - key: FRONTEND_ORIGINS
+        sync: false
+      - key: MONGODB_URL
+        sync: false
+      - key: DATABASE_NAME
+        value: pricehunter
+      - key: BLAND_WEBHOOK_URL
+        sync: false
+      - key: MOCK_VOICE_CALLS
+        value: "true"
+
+  - type: web
+    name: pricehunter-web
+    runtime: static
+    rootDir: pricehunter/frontend
+    buildCommand: npm install && npm run build
+    staticPublishPath: pricehunter/frontend/dist
+    pullRequestPreviewsEnabled: false
+    envVars:
+      - key: VITE_API_URL
+        sync: false

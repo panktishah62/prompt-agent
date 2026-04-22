@@ -16,6 +16,7 @@ class Settings(BaseSettings):
     google_places_api_key: str = ""
     bland_ai_api_key: str = ""
     test_call_phone: str = ""
+    frontend_origins: str = "http://localhost:5173"
     mongodb_url: str = "mongodb://localhost:27017"
     database_name: str = "pricehunter"
     bland_webhook_url: str = "http://localhost:8000/api/webhooks/voice"
