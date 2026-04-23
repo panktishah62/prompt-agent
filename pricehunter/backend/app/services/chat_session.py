@@ -10,7 +10,7 @@ from app.models.schemas import (
     SearchStrategy,
     StructuredQuery,
 )
-from app.services import orchestrator, query_structurer
+from app.services import orchestrator, query_structurer, search_progress
 
 logger = logging.getLogger(__name__)
 
@@ -138,7 +138,7 @@ def _suggested_replies(field: ChatField | None) -> list[str]:
     if field == "intent":
         return ["Cheapest", "Best value", "Fastest"]
     if field == "product":
-        return ["iPhone 16 128GB", "Daikin AC repair", "Tomatoes 1kg"]
+        return ["iPhone 16 128GB", "boat Airdopes 141", "paracetamol tablets"]
     return []
 
 
@@ -175,7 +175,7 @@ def _question_for_state(state: ConversationState) -> str:
         existing = state.product or "that"
         return (
             f"I need the exact product or service before I search. \"{existing}\" is still too broad. "
-            "Please reply with the precise item, like \"iPhone 16 128GB\" or \"Daikin AC repair\"."
+            "Please reply with the precise item, like \"iPhone 16 128GB\" or \"paracetamol tablets\"."
         )
     if state.awaiting_field == "urgency":
         return (
@@ -298,21 +298,19 @@ async def process_message(
     state.search_strategy = _decide_search_strategy(state)
     structured_query = _build_structured_query(state)
     try:
-        results = await orchestrator.run_search_structured(
+        progress = await search_progress.start_search(
             structured_query,
             search_strategy=state.search_strategy,
         )
     except orchestrator.UnsupportedCategoryError:
         return _unsupported_category_response(state)
 
-    scope_phrase = {
-        "online": "online sources",
-        "offline": "nearby offline vendors",
-        "both": "both online and offline sources",
-    }[state.search_strategy]
+    vendor_count = len(progress.discovered_vendors)
+    platform_count = len(progress.online_platforms)
     assistant_message = (
-        f"Searching {scope_phrase} for {structured_query.product}. "
-        f"I am optimizing for {structured_query.intent.replace('_', ' ')} with {structured_query.urgency} urgency."
+        f"I found {vendor_count} nearby vendors and queued {platform_count} online sources for "
+        f"{structured_query.product} in {structured_query.location}. I’m showing the vendor list now and "
+        "will keep updating prices as calls and online fetches complete."
     )
 
     _save_session(state)
@@ -322,5 +320,5 @@ async def process_message(
         state=state,
         ready_to_search=True,
         suggested_replies=[],
-        results=results,
+        search_progress=progress,
     )

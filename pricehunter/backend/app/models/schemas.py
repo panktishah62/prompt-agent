@@ -10,6 +10,7 @@ UrgencyOption = Literal["immediate", "1-2 days", "10 days", "no rush"]
 SearchStrategy = Literal["online", "offline", "both"]
 ChatIntent = Literal["cheapest", "fastest", "best_value"]
 ChatField = Literal["product", "urgency", "intent", "category"]
+ProgressStatus = Literal["pending", "running", "completed", "failed"]
 
 
 class StructuredQuery(BaseModel):
@@ -52,6 +53,7 @@ class VendorInfo(BaseModel):
     location: Optional[dict] = None
     place_id: Optional[str] = None
     rating: Optional[float] = None
+    user_rating_count: Optional[int] = None
     is_mock: bool = False
 
 
@@ -82,6 +84,27 @@ class SearchResponse(BaseModel):
     offline_count: int
     total_time_seconds: float
     search_strategy: SearchStrategy = "both"
+
+
+class SearchProgressStep(BaseModel):
+    id: str
+    label: str
+    status: ProgressStatus = "pending"
+    detail: Optional[str] = None
+
+
+class SearchProgressSnapshot(BaseModel):
+    search_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    query: StructuredQuery
+    status: ProgressStatus = "pending"
+    discovered_vendors: list[VendorInfo] = Field(default_factory=list)
+    online_platforms: list[str] = Field(default_factory=list)
+    steps: list[SearchProgressStep] = Field(default_factory=list)
+    partial_results: list[UnifiedResult] = Field(default_factory=list)
+    final_results: Optional[SearchResponse] = None
+    error: Optional[str] = None
+    started_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
 
 
 class ConversationState(BaseModel):
@@ -117,6 +140,7 @@ class ChatMessageResponse(BaseModel):
     ready_to_search: bool = False
     suggested_replies: list[str] = Field(default_factory=list)
     results: Optional[SearchResponse] = None
+    search_progress: Optional[SearchProgressSnapshot] = None
 
 
 class ResolveLocationRequest(BaseModel):

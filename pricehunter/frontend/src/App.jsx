@@ -5,6 +5,7 @@ import ResultsList from './components/ResultsList'
 import ChatBubble from './components/ChatBubble'
 import ConversationSummary from './components/ConversationSummary'
 import LocationPrompt from './components/LocationPrompt'
+import SearchProgressPanel from './components/SearchProgressPanel'
 
 const LOCATION_STORAGE_KEY = 'pricehunter-location'
 
@@ -22,6 +23,7 @@ const initialState = {
   messages: initialMessages,
   suggestedReplies: ['iPhone 16 128GB in Rajkot', 'boat earphones', 'paracetamol tablets'],
   data: null,
+  searchProgress: null,
   error: '',
   conversationState: null,
 }
@@ -33,6 +35,8 @@ function reducer(state, action) {
         ...state,
         isLoading: true,
         error: '',
+        data: null,
+        searchProgress: null,
         messages: [...state.messages, { role: 'user', content: action.payload }],
       }
     case 'SEND_SUCCESS':
@@ -42,11 +46,18 @@ function reducer(state, action) {
         sessionId: action.payload.sessionId,
         suggestedReplies: action.payload.suggestedReplies,
         conversationState: action.payload.conversationState,
-        data: action.payload.results ?? state.data,
+        data: action.payload.results ?? action.payload.searchProgress?.final_results ?? state.data,
+        searchProgress: action.payload.searchProgress ?? state.searchProgress,
         messages: [
           ...state.messages,
           { role: 'assistant', content: action.payload.assistantMessage },
         ],
+      }
+    case 'SEARCH_PROGRESS_UPDATE':
+      return {
+        ...state,
+        searchProgress: action.payload,
+        data: action.payload.final_results ?? state.data,
       }
     case 'SEND_ERROR':
       return {
@@ -84,7 +95,7 @@ function App() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [state.messages, state.isLoading])
+  }, [state.messages, state.isLoading, state.searchProgress])
 
   const headline = useMemo(() => {
     const product = state.conversationState?.product || state.data?.query?.product
@@ -92,6 +103,30 @@ function App() {
   }, [state.conversationState?.product, state.data?.query?.product])
 
   const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+
+  useEffect(() => {
+    const searchId = state.searchProgress?.search_id
+    const status = state.searchProgress?.status
+
+    if (!searchId || status === 'completed' || status === 'failed') {
+      return undefined
+    }
+
+    const intervalId = window.setInterval(async () => {
+      try {
+        const response = await fetch(`${apiBaseUrl}/api/chat/search/${searchId}`)
+        if (!response.ok) {
+          throw new Error(`Search status failed with status ${response.status}`)
+        }
+        const payload = await response.json()
+        dispatch({ type: 'SEARCH_PROGRESS_UPDATE', payload })
+      } catch (error) {
+        console.error(error)
+      }
+    }, 2000)
+
+    return () => window.clearInterval(intervalId)
+  }, [apiBaseUrl, state.searchProgress?.search_id, state.searchProgress?.status])
 
   const rememberLocation = (value) => {
     setLocation(value)
@@ -187,6 +222,7 @@ function App() {
           suggestedReplies: payload.suggested_replies || [],
           conversationState: payload.state,
           results: payload.results || null,
+          searchProgress: payload.search_progress || null,
         },
       })
       setLocationAnnouncementShown(true)
@@ -339,11 +375,15 @@ function App() {
           <div className="space-y-6">
             <ConversationSummary state={state.conversationState} />
 
-            {state.isLoading && <LoadingState />}
+            {state.isLoading && !state.searchProgress && <LoadingState />}
+
+            {state.searchProgress && (
+              <SearchProgressPanel progress={state.searchProgress} />
+            )}
 
             {!state.isLoading && state.data && <ResultsList data={state.data} />}
 
-            {!state.isLoading && !state.data && (
+            {!state.isLoading && !state.data && !state.searchProgress && (
               <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6 shadow-soft backdrop-blur">
                 <p className="text-xs uppercase tracking-[0.3em] text-mint/80">What happens next</p>
                 <div className="mt-4 grid gap-3 md:grid-cols-3">

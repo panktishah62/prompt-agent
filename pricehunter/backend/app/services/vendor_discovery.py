@@ -77,7 +77,8 @@ def _candidate_score(vendor: VendorInfo, product: str, category: str) -> tuple[f
     product_hits = sum(1 for term in product_terms if term in haystack)
     category_hits = sum(1 for term in category_terms if term in haystack)
     rating = vendor.rating or 0.0
-    return (product_hits * 3 + category_hits * 1.5 + rating, rating, vendor.name)
+    review_count = vendor.user_rating_count or 0
+    return (product_hits * 3 + category_hits * 1.5, rating, review_count, vendor.name)
 
 
 def _mock_vendors(product: str, category: str, location: str) -> list[VendorInfo]:
@@ -104,6 +105,7 @@ def _mock_vendors(product: str, category: str, location: str) -> list[VendorInfo
             phone=phone,
             address=address,
             rating=rating,
+            user_rating_count=120 - index * 10,
             location={"lat": 22.3039, "lng": 70.8022},
             place_id=f"mock-{index}",
             is_mock=True,
@@ -171,6 +173,7 @@ async def _place_to_vendor(client: httpx.AsyncClient, place: dict) -> VendorInfo
         },
         place_id=place_id,
         rating=place.get("rating"),
+        user_rating_count=place.get("userRatingCount"),
         is_mock=False,
     )
 
@@ -202,7 +205,7 @@ async def discover_vendors(product: str, category: str, location: str) -> list[V
                     PLACES_SEARCH_URL,
                     headers={
                         "X-Goog-Api-Key": settings.google_places_api_key,
-                        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location,places.rating",
+                        "X-Goog-FieldMask": "places.id,places.displayName,places.formattedAddress,places.location,places.rating,places.userRatingCount",
                     },
                     json=request_body,
                     timeout=25,
@@ -225,14 +228,29 @@ async def discover_vendors(product: str, category: str, location: str) -> list[V
             for vendor in candidates:
                 unique[vendor.place_id or vendor.phone] = vendor
                 unique[vendor.phone] = vendor
+            deduped_vendors = list({vendor.place_id or vendor.phone: vendor for vendor in unique.values()}.values())
+            relevant_vendors = [
+                vendor
+                for vendor in deduped_vendors
+                if _candidate_score(vendor, product, category)[0] > 0
+            ]
+            pool = relevant_vendors or deduped_vendors
             vendors = sorted(
-                {vendor.place_id or vendor.phone: vendor for vendor in unique.values()}.values(),
-                key=lambda item: _candidate_score(item, product, category),
+                pool,
+                key=lambda item: (
+                    item.rating or 0.0,
+                    item.user_rating_count or 0,
+                    _candidate_score(item, product, category)[0],
+                    item.name,
+                ),
                 reverse=True,
             )[:10]
             if not vendors:
                 raise ValueError("No callable vendors returned by Google Places. Places may be missing phone numbers.")
-            logger.info("Vendor discovery completed with %s vendors", len(vendors))
+            logger.info(
+                "Vendor discovery completed with %s vendors, sorted by rating and review count",
+                len(vendors),
+            )
             return vendors
     except Exception as exc:  # pragma: no cover - external integration
         logger.warning("Vendor discovery failed, using mock vendors: %s", exc)
