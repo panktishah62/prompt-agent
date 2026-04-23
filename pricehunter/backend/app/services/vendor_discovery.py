@@ -161,6 +161,10 @@ async def _place_to_vendor(client: httpx.AsyncClient, place: dict) -> VendorInfo
 
     phone = await _fetch_place_phone(client, place_id)
     if not phone:
+        logger.info(
+            "Skipping place without phone number: %s",
+            place.get("displayName", {}).get("text", place_id),
+        )
         return None
 
     return VendorInfo(
@@ -213,16 +217,28 @@ async def discover_vendors(product: str, category: str, location: str) -> list[V
                 response.raise_for_status()
                 payload = response.json()
                 places = payload.get("places", [])
+                logger.info(
+                    "Google Places returned %s place candidates for query='%s'",
+                    len(places),
+                    query,
+                )
                 resolved = await asyncio.gather(
                     *[_place_to_vendor(client, place) for place in places],
                     return_exceptions=True,
                 )
+                query_vendors = 0
                 for item in resolved:
                     if isinstance(item, Exception):
                         logger.warning("Failed to fetch phone details for a place: %s", item)
                         continue
                     if item is not None:
                         candidates.append(item)
+                        query_vendors += 1
+                logger.info(
+                    "Google Places kept %s callable vendors for query='%s'",
+                    query_vendors,
+                    query,
+                )
 
             unique: dict[str, VendorInfo] = {}
             for vendor in candidates:
@@ -246,7 +262,9 @@ async def discover_vendors(product: str, category: str, location: str) -> list[V
                 reverse=True,
             )[:10]
             if not vendors:
-                raise ValueError("No callable vendors returned by Google Places. Places may be missing phone numbers.")
+                raise ValueError(
+                    "No callable vendors returned by Google Places. Places may be missing phone numbers."
+                )
             logger.info(
                 "Vendor discovery completed with %s vendors, sorted by rating and review count",
                 len(vendors),

@@ -6,6 +6,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 PROJECT_ROOT = BACKEND_DIR.parent
+WORKSPACE_ROOT = PROJECT_ROOT.parent
 
 
 class Settings(BaseSettings):
@@ -23,7 +24,7 @@ class Settings(BaseSettings):
     mock_voice_calls: bool = True
 
     model_config = SettingsConfigDict(
-        env_file=(PROJECT_ROOT / ".env", BACKEND_DIR / ".env"),
+        env_file=(WORKSPACE_ROOT / ".env", PROJECT_ROOT / ".env", BACKEND_DIR / ".env"),
         env_file_encoding="utf-8",
         extra="ignore",
     )

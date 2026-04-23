@@ -38,6 +38,14 @@ app.include_router(webhooks.router)
 
 @app.on_event("startup")
 async def startup_event() -> None:
+    logging.getLogger(__name__).info(
+        "Startup config: OpenAI=%s GooglePlaces=%s SerpAPI=%s Bland=%s MockVoice=%s",
+        bool(settings.openai_api_key),
+        bool(settings.google_places_api_key),
+        bool(settings.serpapi_api_key),
+        bool(settings.bland_ai_api_key),
+        settings.mock_voice_calls,
+    )
     await ping_database()
 
 
