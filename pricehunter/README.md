@@ -14,7 +14,7 @@ PriceHunter is a hybrid price comparison engine that searches e-commerce platfor
 
 - Backend: FastAPI, Motor, MongoDB, OpenAI SDK, httpx
 - Frontend: React 18, Vite, Tailwind CSS
-- Voice: Bland.ai
+- Voice: Bolna
 - Vendor discovery: Google Places API
 - Live online pricing: SerpApi Google Shopping API
 
@@ -22,8 +22,8 @@ PriceHunter is a hybrid price comparison engine that searches e-commerce platfor
 
 1. Copy `.env.example` to `.env` in the project root.
 2. Add the required live credentials to `.env`.
-3. Keep `MOCK_VOICE_CALLS=true` for hackathon demo mode, or set it to `false` with a valid Bland.ai key to enable real vendor calls.
-4. To test live calling safely, set `TEST_CALL_PHONE` to your own number. When set, every Bland outbound call is routed to that number instead of the discovered vendor number, while keeping the vendor name and product in the call prompt and metadata.
+3. Keep `MOCK_VOICE_CALLS=true` for hackathon demo mode, or set it to `false` with a valid Bolna key and agent ID to enable real vendor calls.
+4. To test live calling safely, set `TEST_CALL_PHONE` to your own number. When set, every Bolna outbound call is routed to that number instead of the discovered vendor number, while keeping the vendor name and product in the call metadata.
 5. For live online prices, set `SERPAPI_API_KEY`. Without it, the online adapter layer falls back to realistic demo listings.
 6. Start the backend:
    ```bash
@@ -64,12 +64,13 @@ Backend:
 - `OPENAI_MODEL=gpt-4o-mini`
 - `SERPAPI_API_KEY`
 - `GOOGLE_PLACES_API_KEY`
-- `BLAND_AI_API_KEY`
+- `BOLNA_API_KEY`
+- `BOLNA_AGENT_ID`
 - `TEST_CALL_PHONE`
 - `FRONTEND_ORIGINS=https://your-frontend-domain.onrender.com`
 - `MONGODB_URL=mongodb+srv://...`
 - `DATABASE_NAME=pricehunter`
-- `BLAND_WEBHOOK_URL=https://your-backend-domain.onrender.com/api/webhooks/voice`
+- `BOLNA_WEBHOOK_URL=https://your-backend-domain.onrender.com/api/webhooks/voice`
 - `MOCK_VOICE_CALLS=true` or `false`
 
 Frontend:
@@ -80,13 +81,13 @@ Frontend:
 
 - If you are not using Docker, do not use `mongodb://mongodb:27017`; use your Atlas connection string.
 - `FRONTEND_ORIGINS` accepts a comma-separated list if you need both production and preview URLs.
-- Keep `MOCK_VOICE_CALLS=true` for the fastest safe launch, then turn it off after Bland is configured.
+- Keep `MOCK_VOICE_CALLS=true` for the fastest safe launch, then turn it off after Bolna is configured.
 
 ## Demo behavior
 
 - Missing OpenAI credentials falls back to heuristic query structuring and platform selection.
 - Missing `SERPAPI_API_KEY` falls back to simulated online platform listings.
 - Missing Google Places credentials falls back to mock Indian vendor discovery.
-- Missing Bland.ai credentials or `MOCK_VOICE_CALLS=true` falls back to instant mock call transcripts.
-- Setting `TEST_CALL_PHONE` routes every real Bland call to your test phone instead of vendor phone numbers.
+- Missing Bolna credentials, missing Bolna agent ID, or `MOCK_VOICE_CALLS=true` falls back to instant mock call transcripts.
+- Setting `TEST_CALL_PHONE` routes every real Bolna call to your test phone instead of vendor phone numbers.
 - Missing MongoDB does not break search; results still return and persistence logs a warning.

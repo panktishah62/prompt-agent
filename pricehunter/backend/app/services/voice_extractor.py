@@ -7,7 +7,7 @@ from openai import AsyncOpenAI
 from pydantic import BaseModel
 
 from app.config import settings
-from app.models.schemas import UnifiedResult, VendorInfo
+from app.models.schemas import UnifiedResult, VendorInfo, VoiceCallResult
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +32,66 @@ class TranscriptExtraction(BaseModel):
     delivery_time: str | None = None
     notes: str | None = None
     confidence: float = 0.6
+
+
+def _coerce_bool(value: object, default: bool = True) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "yes", "in stock", "available"}:
+            return True
+        if normalized in {"false", "no", "out of stock", "unavailable"}:
+            return False
+    return default
+
+
+def _coerce_float(value: object) -> float | None:
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        normalized = re.sub(r"[^\d.]", "", value)
+        if normalized:
+            try:
+                return float(normalized)
+            except ValueError:
+                return None
+    return None
+
+
+def extract_from_structured_data(
+    extracted_data: dict,
+    vendor: VendorInfo,
+    product: str,
+) -> UnifiedResult:
+    price = _coerce_float(extracted_data.get("price"))
+    availability = _coerce_bool(extracted_data.get("availability"), default=True)
+    negotiated = _coerce_bool(extracted_data.get("negotiated"), default=False)
+    delivery_time = extracted_data.get("delivery_time")
+    if delivery_time is not None:
+        delivery_time = str(delivery_time)
+    notes = extracted_data.get("notes")
+    if notes is not None:
+        notes = str(notes)
+    confidence = _coerce_float(extracted_data.get("confidence")) or 0.74
+
+    resolved_notes = notes or f"Asked about {product} via phone inquiry."
+    if vendor.is_mock:
+        resolved_notes = f"{resolved_notes} Demo vendor discovery data."
+
+    return UnifiedResult(
+        source_type="offline",
+        name=vendor.name,
+        price=price,
+        delivery_time=delivery_time,
+        availability=availability,
+        negotiated=negotiated,
+        confidence=max(0.0, min(confidence, 1.0)),
+        phone=vendor.phone,
+        address=vendor.address,
+        notes=resolved_notes,
+        is_mock=vendor.is_mock,
+    )
 
 
 def _fallback_extract(transcript: str) -> TranscriptExtraction:
@@ -103,3 +163,14 @@ async def extract_from_transcript(transcript: str, vendor: VendorInfo, product: 
         notes=notes,
         is_mock=vendor.is_mock,
     )
+
+
+async def extract_from_call_result(call: VoiceCallResult, product: str) -> UnifiedResult:
+    if call.extracted_data:
+        try:
+            return extract_from_structured_data(call.extracted_data, call.vendor, product)
+        except Exception as exc:  # pragma: no cover - provider payload variability
+            logger.warning("Structured voice extraction failed, falling back to transcript parser: %s", exc)
+
+    transcript = call.transcript or ""
+    return await extract_from_transcript(transcript, call.vendor, product)

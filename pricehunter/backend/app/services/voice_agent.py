@@ -5,6 +5,8 @@ import logging
 import math
 import random
 import uuid
+from datetime import datetime, timedelta
+from typing import Any
 
 import httpx
 
@@ -13,36 +15,34 @@ from app.models.schemas import VendorInfo, VoiceCallResult
 
 logger = logging.getLogger(__name__)
 
-BLAND_CALLS_URL = "https://api.bland.ai/v1/calls"
+BOLNA_CALL_URL = "https://api.bolna.ai/call"
+BOLNA_EXECUTION_URL = "https://api.bolna.ai/executions/{execution_id}"
+_WEBHOOK_CACHE_TTL = timedelta(minutes=30)
+_EXECUTION_PAYLOADS: dict[str, tuple[datetime, dict[str, Any]]] = {}
 
 
 def _call_destination_phone(vendor: VendorInfo) -> str:
     return settings.test_call_phone.strip() or vendor.phone
 
 
-def _call_task(vendor: VendorInfo, product: str) -> str:
-    if settings.test_call_phone.strip():
-        return (
-            f"You are calling a test operator standing in for vendor {vendor.name}. "
-            f"Ask whether they have {product} in stock, what the current price is, and whether any "
-            "discount is available. Treat the caller's answers as the vendor's answers. Be polite and "
-            "professional. Speak in Hindi or English based on how they respond. Keep the call under 60 seconds."
-        )
+def _call_prompt(vendor: VendorInfo, product: str) -> str:
+    destination_context = (
+        f"You are speaking with a test operator acting as vendor {vendor.name}. "
+        if settings.test_call_phone.strip()
+        else f"You are speaking with shop vendor {vendor.name}. "
+    )
     return (
-        f"You are calling a shop to inquire about a product. Ask if they have {product} "
-        "in stock, what is their price, and if they can offer any discount. Be polite and "
-        "professional. Speak in Hindi or English based on how the vendor responds. "
-        "Keep the call under 60 seconds."
+        f"{destination_context}"
+        f"Ask whether {product} is in stock, the current quoted price in rupees, whether any discount is available, "
+        "and whether pickup or delivery is possible today. Start in English, but if the vendor responds in Hindi or "
+        "sounds more comfortable in Hindi, continue in Hindi. Keep the conversation under 60 seconds, be concise, "
+        "and end politely after you have price, availability, discount, and timing."
     )
 
 
 def _mock_transcript(vendor: VendorInfo, product: str) -> str:
     lowered = product.lower()
-    if any(keyword in lowered for keyword in ("tomato", "potato", "onion", "vegetable", "fruit", "milk", "rice")):
-        prices = [39, 49, 59, 79, 99, 129]
-        discounts = [0, 5, 10, 15]
-        deliveries = ["pickup in 15 minutes", "delivery in 30 minutes", "delivery in 45 minutes"]
-    elif any(keyword in lowered for keyword in ("iphone", "phone", "mobile")):
+    if any(keyword in lowered for keyword in ("iphone", "phone", "mobile")):
         prices = [57999, 59999, 62999, 64999, 68999]
         discounts = [0, 500, 1000, 1500]
         deliveries = ["pickup in 30 minutes", "same-day delivery", "delivery in 2 hours"]
@@ -76,62 +76,205 @@ def _mock_transcript(vendor: VendorInfo, product: str) -> str:
     )
 
 
-async def call_vendor(vendor: VendorInfo, product: str, api_key: str | None = None) -> VoiceCallResult:
-    """Trigger an outbound call to a vendor via Bland.ai."""
+def _mock_extracted_data(transcript: str) -> dict[str, Any]:
+    lowered = transcript.lower()
+    price = None
+    for token in transcript.split():
+        normalized = token.replace(",", "")
+        if normalized.isdigit():
+            price = float(normalized)
+            break
+    delivery_time = None
+    if "pickup in" in lowered:
+        delivery_time = transcript[lowered.index("pickup in") :].split(".")[0]
+    elif "delivery in" in lowered:
+        delivery_time = transcript[lowered.index("delivery in") :].split(".")[0]
+    elif "same-day delivery" in lowered:
+        delivery_time = "same-day delivery"
+    return {
+        "price": price,
+        "availability": "out of stock" not in lowered and "not available" not in lowered,
+        "negotiated": any(phrase in lowered for phrase in ("reduce it", "discount", "offer")),
+        "delivery_time": delivery_time,
+        "notes": "Mock Bolna call result.",
+        "confidence": 0.78 if price is not None else 0.58,
+    }
 
-    effective_key = api_key or settings.bland_ai_api_key
-    if settings.mock_voice_calls or not effective_key:
+
+def _auth_headers(api_key: str) -> dict[str, str]:
+    return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+
+
+def _prune_webhook_cache() -> None:
+    now = datetime.utcnow()
+    expired = [key for key, (created_at, _) in _EXECUTION_PAYLOADS.items() if now - created_at > _WEBHOOK_CACHE_TTL]
+    for key in expired:
+        _EXECUTION_PAYLOADS.pop(key, None)
+
+
+def store_execution_webhook(payload: dict[str, Any]) -> str | None:
+    execution_id = str(
+        payload.get("id")
+        or payload.get("execution_id")
+        or payload.get("call_id")
+        or payload.get("data", {}).get("id")
+        or ""
+    ).strip()
+    if not execution_id:
+        return None
+    _prune_webhook_cache()
+    _EXECUTION_PAYLOADS[execution_id] = (datetime.utcnow(), payload)
+    return execution_id
+
+
+def _cached_execution_payload(execution_id: str) -> dict[str, Any] | None:
+    _prune_webhook_cache()
+    item = _EXECUTION_PAYLOADS.get(execution_id)
+    return item[1] if item else None
+
+
+def _map_bolna_status(status: str | None) -> str:
+    normalized = (status or "").strip().lower()
+    if normalized in {"completed", "complete", "done"}:
+        return "completed"
+    if normalized in {"busy"}:
+        return "busy"
+    if normalized in {"no-answer", "no_answer", "no answer"}:
+        return "no_answer"
+    if normalized in {"failed", "error", "canceled", "cancelled"}:
+        return "failed"
+    return "busy"
+
+
+def _extract_transcript_from_payload(payload: dict[str, Any]) -> str | None:
+    direct = payload.get("transcript")
+    if isinstance(direct, str) and direct.strip():
+        return direct.strip()
+    if isinstance(payload.get("transcript"), list):
+        segments = []
+        for item in payload["transcript"]:
+            if isinstance(item, dict):
+                text = item.get("content") or item.get("text") or item.get("message")
+                speaker = item.get("speaker") or item.get("role")
+                if text:
+                    segments.append(f"{speaker or 'Speaker'}: {text}")
+            elif isinstance(item, str) and item.strip():
+                segments.append(item.strip())
+        if segments:
+            return " ".join(segments)
+    data = payload.get("data")
+    if isinstance(data, dict):
+        return _extract_transcript_from_payload(data)
+    return None
+
+
+def _extract_extracted_data(payload: dict[str, Any]) -> dict[str, Any] | None:
+    extracted = payload.get("extracted_data")
+    if isinstance(extracted, dict):
+        return extracted
+    data = payload.get("data")
+    if isinstance(data, dict):
+        nested = data.get("extracted_data")
+        if isinstance(nested, dict):
+            return nested
+    return None
+
+
+def _extract_duration_seconds(payload: dict[str, Any]) -> int | None:
+    duration = payload.get("duration") or payload.get("duration_seconds") or payload.get("call_length")
+    data = payload.get("data")
+    if duration is None and isinstance(data, dict):
+        duration = data.get("duration") or data.get("duration_seconds") or data.get("call_length")
+    if isinstance(duration, (int, float)):
+        return max(0, int(math.ceil(duration)))
+    if isinstance(duration, str):
+        try:
+            return max(0, int(math.ceil(float(duration))))
+        except ValueError:
+            return None
+    return None
+
+
+def _build_call_result_from_payload(call: VoiceCallResult, payload: dict[str, Any]) -> VoiceCallResult:
+    transcript = _extract_transcript_from_payload(payload) or call.transcript
+    extracted_data = _extract_extracted_data(payload) or call.extracted_data
+    status = _map_bolna_status(payload.get("status") or payload.get("event"))
+    return VoiceCallResult(
+        vendor=call.vendor,
+        call_id=call.call_id,
+        status=status,  # type: ignore[arg-type]
+        transcript=transcript,
+        duration_seconds=_extract_duration_seconds(payload) or call.duration_seconds,
+        extracted_data=extracted_data,
+        is_mock=False,
+    )
+
+
+async def call_vendor(vendor: VendorInfo, product: str, api_key: str | None = None) -> VoiceCallResult:
+    """Trigger an outbound call to a vendor via Bolna."""
+
+    effective_key = api_key or settings.bolna_api_key
+    if settings.mock_voice_calls or not effective_key or not settings.bolna_agent_id:
         logger.info("Mock voice call for vendor=%s", vendor.name)
         await asyncio.sleep(random.uniform(0.2, 0.8))
+        transcript = _mock_transcript(vendor, product)
         return VoiceCallResult(
             vendor=vendor,
             call_id=f"mock-call-{uuid.uuid4()}",
             status="completed",
-            transcript=_mock_transcript(vendor, product),
+            transcript=transcript,
             duration_seconds=random.randint(24, 57),
+            extracted_data=_mock_extracted_data(transcript),
             is_mock=True,
         )
 
     destination_phone = _call_destination_phone(vendor)
     if settings.test_call_phone.strip():
         logger.info(
-            "Triggering Bland.ai test call for vendor=%s via test phone=%s",
+            "Triggering Bolna test call for vendor=%s via test phone=%s",
             vendor.name,
             destination_phone,
         )
     else:
-        logger.info("Triggering Bland.ai call for vendor=%s", vendor.name)
+        logger.info("Triggering Bolna call for vendor=%s", vendor.name)
+
     async with httpx.AsyncClient() as client:
         response = await client.post(
-            BLAND_CALLS_URL,
-            headers={"Authorization": effective_key, "Content-Type": "application/json"},
+            BOLNA_CALL_URL,
+            headers=_auth_headers(effective_key),
             json={
-                "phone_number": destination_phone,
-                "task": _call_task(vendor, product),
-                "voice": "maya",
-                "wait_for_greeting": True,
-                "record": True,
-                "webhook": settings.bland_webhook_url,
+                "agent_id": settings.bolna_agent_id,
+                "recipient_phone_number": destination_phone,
+                "from_phone_number": None,
                 "metadata": {
                     "vendor_name": vendor.name,
                     "product": product,
                     "vendor_phone": vendor.phone,
                     "dialed_phone": destination_phone,
                     "test_call_routing": bool(settings.test_call_phone.strip()),
+                    "webhook_url": settings.bolna_webhook_url,
                 },
-                "max_duration": 60,
+                "context_data": {
+                    "product": product,
+                    "vendor_name": vendor.name,
+                    "language_mode": "multi-hi",
+                    "task_prompt": _call_prompt(vendor, product),
+                },
             },
             timeout=30,
         )
         response.raise_for_status()
         payload = response.json()
-        call_id = payload.get("call_id") or payload.get("id") or f"live-call-{uuid.uuid4()}"
-        return VoiceCallResult(vendor=vendor, call_id=call_id, status="busy", is_mock=False)
+        call_id = (
+            payload.get("id")
+            or payload.get("execution_id")
+            or payload.get("call_id")
+            or f"bolna-call-{uuid.uuid4()}"
+        )
+        return VoiceCallResult(vendor=vendor, call_id=str(call_id), status="busy", is_mock=False)
 
 
 async def call_all_vendors(vendors: list[VendorInfo], product: str) -> list[VoiceCallResult]:
-    """Trigger calls to all vendors concurrently."""
-
     tasks = [call_vendor(vendor, product) for vendor in vendors]
     results = await asyncio.gather(*tasks, return_exceptions=True)
 
@@ -139,13 +282,15 @@ async def call_all_vendors(vendors: list[VendorInfo], product: str) -> list[Voic
     for vendor, result in zip(vendors, results, strict=False):
         if isinstance(result, Exception):
             logger.warning("Call initiation failed for %s: %s", vendor.name, result)
+            transcript = _mock_transcript(vendor, product)
             completed.append(
                 VoiceCallResult(
                     vendor=vendor,
                     call_id=f"fallback-{uuid.uuid4()}",
                     status="completed",
-                    transcript=_mock_transcript(vendor, product),
+                    transcript=transcript,
                     duration_seconds=random.randint(20, 55),
+                    extracted_data=_mock_extracted_data(transcript),
                     is_mock=True,
                 )
             )
@@ -154,18 +299,8 @@ async def call_all_vendors(vendors: list[VendorInfo], product: str) -> list[Voic
     return completed
 
 
-def _extract_transcript_from_payload(payload: dict) -> str | None:
-    transcript = payload.get("concatenated_transcript") or payload.get("transcript")
-    if transcript:
-        return transcript
-    analysis = payload.get("analysis") or {}
-    if isinstance(analysis, dict):
-        return analysis.get("transcript")
-    return None
-
-
 async def poll_call_result(call: VoiceCallResult, timeout_seconds: int = 120) -> VoiceCallResult:
-    if call.is_mock or settings.mock_voice_calls or not settings.bland_ai_api_key:
+    if call.is_mock or settings.mock_voice_calls or not settings.bolna_api_key or not settings.bolna_agent_id:
         return call
     if call.status != "busy":
         return call
@@ -173,45 +308,32 @@ async def poll_call_result(call: VoiceCallResult, timeout_seconds: int = 120) ->
     deadline = asyncio.get_running_loop().time() + timeout_seconds
     async with httpx.AsyncClient() as client:
         while asyncio.get_running_loop().time() < deadline:
+            cached_payload = _cached_execution_payload(call.call_id)
+            if cached_payload is not None:
+                resolved = _build_call_result_from_payload(call, cached_payload)
+                if resolved.status in {"completed", "failed", "no_answer"}:
+                    return resolved
+
             response = await client.get(
-                f"{BLAND_CALLS_URL}/{call.call_id}",
-                headers={"Authorization": settings.bland_ai_api_key},
+                BOLNA_EXECUTION_URL.format(execution_id=call.call_id),
+                headers=_auth_headers(settings.bolna_api_key),
                 timeout=20,
             )
             response.raise_for_status()
             payload = response.json()
-            status = payload.get("status", "busy")
-            transcript = _extract_transcript_from_payload(payload)
-            duration = payload.get("call_length") or payload.get("duration")
-            duration_seconds = None
-            if isinstance(duration, (int, float)):
-                duration_seconds = max(0, int(math.ceil(duration)))
-            elif isinstance(duration, str):
-                try:
-                    duration_seconds = max(0, int(math.ceil(float(duration))))
-                except ValueError:
-                    duration_seconds = None
-            if status == "completed":
-                return VoiceCallResult(
-                    vendor=call.vendor,
-                    call_id=call.call_id,
-                    status="completed",
-                    transcript=transcript,
-                    duration_seconds=duration_seconds,
-                    is_mock=False,
-                )
-            if status in {"failed", "no_answer", "busy"} and not transcript:
-                await asyncio.sleep(5)
-                continue
+            resolved = _build_call_result_from_payload(call, payload)
+            if resolved.status in {"completed", "failed", "no_answer"}:
+                return resolved
             await asyncio.sleep(5)
 
     logger.warning("Timed out waiting for call %s; falling back to transcript stub.", call.call_id)
-    fallback_transcript = call.transcript or _mock_transcript(call.vendor, "the requested product")
+    transcript = call.transcript or _mock_transcript(call.vendor, "the requested product")
     return VoiceCallResult(
         vendor=call.vendor,
         call_id=call.call_id,
         status="completed",
-        transcript=fallback_transcript,
+        transcript=transcript,
         duration_seconds=call.duration_seconds or 60,
+        extracted_data=call.extracted_data or _mock_extracted_data(transcript),
         is_mock=True,
     )

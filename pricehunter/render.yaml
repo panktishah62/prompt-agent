@@ -17,7 +17,9 @@ services:
         sync: false
       - key: GOOGLE_PLACES_API_KEY
         sync: false
-      - key: BLAND_AI_API_KEY
+      - key: BOLNA_API_KEY
+        sync: false
+      - key: BOLNA_AGENT_ID
         sync: false
       - key: TEST_CALL_PHONE
         sync: false
@@ -27,7 +29,7 @@ services:
         sync: false
       - key: DATABASE_NAME
         value: pricehunter
-      - key: BLAND_WEBHOOK_URL
+      - key: BOLNA_WEBHOOK_URL
         sync: false
       - key: MOCK_VOICE_CALLS
         value: "true"

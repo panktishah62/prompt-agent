@@ -21,7 +21,7 @@ from app.services.online_discovery import PlatformStrategy, discover_platforms
 from app.services.platform_adapters import get_adapters
 from app.services.vendor_discovery import discover_vendors
 from app.services.voice_agent import call_vendor, poll_call_result
-from app.services.voice_extractor import extract_from_transcript
+from app.services.voice_extractor import extract_from_call_result
 
 logger = logging.getLogger(__name__)
 
@@ -154,11 +154,14 @@ async def _resolve_vendor(
     try:
         call = await call_vendor(vendor, query.product)
         completed = await poll_call_result(call)
-        if completed.status != "completed" or not completed.transcript:
+        if completed.status != "completed" and not completed.extracted_data:
             _set_step(snapshot, step_id, "failed", f"Call ended with status: {completed.status}.")
             return []
+        if not completed.transcript and not completed.extracted_data:
+            _set_step(snapshot, step_id, "failed", "Call completed without usable result data.")
+            return []
 
-        result = await extract_from_transcript(completed.transcript, completed.vendor, query.product)
+        result = await extract_from_call_result(completed, query.product)
         _update_partial_results(snapshot, [result], query.intent)
         detail = "Quote captured."
         if result.price is not None:

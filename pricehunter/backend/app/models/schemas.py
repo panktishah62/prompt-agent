@@ -65,6 +65,7 @@ class VoiceCallResult(BaseModel):
     status: Literal["completed", "failed", "no_answer", "busy"]
     transcript: Optional[str] = None
     duration_seconds: Optional[int] = None
+    extracted_data: Optional[dict] = None
     is_mock: bool = False
 
 

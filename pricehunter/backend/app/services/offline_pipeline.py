@@ -7,7 +7,7 @@ from app.config import settings
 from app.models.schemas import StructuredQuery, UnifiedResult, VoiceCallResult
 from app.services.vendor_discovery import discover_vendors
 from app.services.voice_agent import call_all_vendors, poll_call_result
-from app.services.voice_extractor import extract_from_transcript
+from app.services.voice_extractor import extract_from_call_result
 
 logger = logging.getLogger(__name__)
 
@@ -44,12 +44,11 @@ async def run(query: StructuredQuery) -> list[UnifiedResult]:
             logger.warning("Call resolution failed: %s", completed)
             continue
         if completed.status != "completed" or not completed.transcript:
-            logger.info("Skipping call %s with status=%s", completed.call_id, completed.status)
-            continue
+            if not completed.extracted_data:
+                logger.info("Skipping call %s with status=%s", completed.call_id, completed.status)
+                continue
         successful_calls.append(completed)
-        extraction_tasks.append(
-            extract_from_transcript(completed.transcript, completed.vendor, query.product)
-        )
+        extraction_tasks.append(extract_from_call_result(completed, query.product))
 
     extracted = await asyncio.gather(*extraction_tasks, return_exceptions=True)
     for call, item in zip(successful_calls, extracted, strict=False):
