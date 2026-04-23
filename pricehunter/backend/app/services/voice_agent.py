@@ -16,7 +16,7 @@ from app.models.schemas import VendorInfo, VoiceCallResult
 logger = logging.getLogger(__name__)
 
 BOLNA_CALL_URL = "https://api.bolna.ai/call"
-BOLNA_STATUS_URL = "https://api.bolna.ai/call/{call_id}"
+BOLNA_STATUS_URL = "https://api.bolna.ai/executions/{execution_id}"
 _WEBHOOK_CACHE_TTL = timedelta(minutes=30)
 _EXECUTION_PAYLOADS: dict[str, tuple[datetime, dict[str, Any]]] = {}
 
@@ -353,16 +353,27 @@ async def poll_call_result(call: VoiceCallResult, timeout_seconds: int = 120) ->
                 if resolved.status in {"completed", "failed", "no_answer"}:
                     return resolved
 
-            response = await client.get(
-                BOLNA_STATUS_URL.format(call_id=call.call_id),
-                headers=_auth_headers(settings.bolna_api_key),
-                timeout=20,
-            )
-            response.raise_for_status()
-            payload = response.json()
-            resolved = _build_call_result_from_payload(call, payload)
-            if resolved.status in {"completed", "failed", "no_answer"}:
-                return resolved
+            try:
+                response = await client.get(
+                    BOLNA_STATUS_URL.format(execution_id=call.call_id),
+                    headers=_auth_headers(settings.bolna_api_key),
+                    timeout=20,
+                )
+                if response.status_code == 404:
+                    logger.info("Bolna execution %s is not ready yet; retrying.", call.call_id)
+                    await asyncio.sleep(5)
+                    continue
+                response.raise_for_status()
+                payload = response.json()
+                resolved = _build_call_result_from_payload(call, payload)
+                if resolved.status in {"completed", "failed", "no_answer"}:
+                    return resolved
+            except httpx.HTTPStatusError as exc:
+                if exc.response is not None and exc.response.status_code == 404:
+                    logger.info("Bolna execution %s returned 404; retrying.", call.call_id)
+                    await asyncio.sleep(5)
+                    continue
+                raise
             await asyncio.sleep(5)
 
     logger.warning("Timed out waiting for call %s; falling back to transcript stub.", call.call_id)
