@@ -12,6 +12,10 @@ from app.services import comparator, offline_pipeline, online_pipeline, query_st
 logger = logging.getLogger(__name__)
 
 
+class UnsupportedCategoryError(ValueError):
+    """Raised when a query falls outside the currently supported categories."""
+
+
 async def store_results(query: StructuredQuery, results: list[UnifiedResult]) -> None:
     try:
         await queries_collection.insert_one(query.model_dump(mode="json"))
@@ -26,6 +30,8 @@ async def run_search_structured(
     search_strategy: SearchStrategy = "both",
 ) -> SearchResponse:
     start_time = time.time()
+    if not query_structurer.is_supported_category(structured_query.category):
+        raise UnsupportedCategoryError(query_structurer.unsupported_category_message())
     logger.info(
         "Running orchestrated search for product=%s strategy=%s",
         structured_query.product,

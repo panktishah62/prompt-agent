@@ -35,6 +35,8 @@ GENERIC_PRODUCT_TERMS = {
     "repair",
 }
 
+SUPPORTED_CHAT_CATEGORIES = ("electronics", "medicine")
+
 URGENCY_OPTIONS = ["Immediate", "1-2 days", "10 days", "No rush"]
 
 
@@ -146,7 +148,26 @@ def _parse_category(message: str) -> str | None:
     for category in allowed:
         if lowered == category or f" {category}" in lowered or f"{category} " in lowered:
             return category
+    if lowered == "medicines":
+        return "medicine"
     return None
+
+
+def _unsupported_category_response(state: ConversationState) -> ChatMessageResponse:
+    assistant_message = query_structurer.unsupported_category_message()
+    state.category = None
+    state.product = None
+    state.search_strategy = None
+    state.awaiting_field = "product"
+    state.missing_fields = ["product", "urgency", "intent", "category"]
+    _save_session(state)
+    return ChatMessageResponse(
+        session_id=state.session_id,
+        assistant_message=assistant_message,
+        state=state,
+        ready_to_search=False,
+        suggested_replies=["iPhone 16 128GB", "boat earphones", "paracetamol tablets"],
+    )
 
 
 def _question_for_state(state: ConversationState) -> str:
@@ -246,12 +267,21 @@ def _build_structured_query(state: ConversationState) -> StructuredQuery:
     )
 
 
-async def process_message(message: str, session_id: str | None = None) -> ChatMessageResponse:
+async def process_message(
+    message: str,
+    session_id: str | None = None,
+    location: str | None = None,
+) -> ChatMessageResponse:
     state = _get_session(session_id)
     user_message = _normalize_whitespace(message)
     logger.info("Processing chat message for session=%s", state.session_id)
 
+    if location:
+        state.location = _normalize_whitespace(location)
+
     await _merge_message_into_state(state, user_message)
+    if state.category and not query_structurer.is_supported_category(state.category):
+        return _unsupported_category_response(state)
     _update_missing_fields(state)
 
     if state.awaiting_field is not None:
@@ -267,10 +297,13 @@ async def process_message(message: str, session_id: str | None = None) -> ChatMe
 
     state.search_strategy = _decide_search_strategy(state)
     structured_query = _build_structured_query(state)
-    results = await orchestrator.run_search_structured(
-        structured_query,
-        search_strategy=state.search_strategy,
-    )
+    try:
+        results = await orchestrator.run_search_structured(
+            structured_query,
+            search_strategy=state.search_strategy,
+        )
+    except orchestrator.UnsupportedCategoryError:
+        return _unsupported_category_response(state)
 
     scope_phrase = {
         "online": "online sources",

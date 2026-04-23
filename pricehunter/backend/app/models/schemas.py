@@ -105,6 +105,7 @@ class ChatMessageRequest(BaseModel):
 
     message: str
     session_id: Optional[str] = None
+    location: Optional[str] = None
 
 
 class ChatMessageResponse(BaseModel):
@@ -116,3 +117,13 @@ class ChatMessageResponse(BaseModel):
     ready_to_search: bool = False
     suggested_replies: list[str] = Field(default_factory=list)
     results: Optional[SearchResponse] = None
+
+
+class ResolveLocationRequest(BaseModel):
+    latitude: float
+    longitude: float
+
+
+class ResolveLocationResponse(BaseModel):
+    location: str
+    formatted_address: Optional[str] = None

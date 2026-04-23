@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.database import ping_database
-from app.routers import chat, search, webhooks
+from app.routers import chat, location, search, webhooks
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,6 +32,7 @@ app.add_middleware(
 
 app.include_router(search.router)
 app.include_router(chat.router)
+app.include_router(location.router)
 app.include_router(webhooks.router)
 
 

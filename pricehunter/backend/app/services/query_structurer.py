@@ -10,6 +10,12 @@ from app.models.schemas import StructuredQuery, UrgencyOption
 
 logger = logging.getLogger(__name__)
 
+SUPPORTED_CATEGORIES = ("electronics", "medicine")
+SUPPORTED_CATEGORY_MESSAGE = (
+    "Right now we only serve electronics and medicines. "
+    "Please search for an electronics or medicine product."
+)
+
 SYSTEM_PROMPT = """
 You are a query structuring assistant. Convert the user's natural language shopping query into a structured JSON object.
 
@@ -120,6 +126,14 @@ CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
         "massage",
     ),
 }
+
+
+def is_supported_category(category: str | None) -> bool:
+    return (category or "").strip().lower() in SUPPORTED_CATEGORIES
+
+
+def unsupported_category_message() -> str:
+    return SUPPORTED_CATEGORY_MESSAGE
 
 
 def infer_category(raw_query: str) -> str:

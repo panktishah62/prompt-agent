@@ -60,6 +60,11 @@ function ConversationSummary({ state }) {
           value={state.category}
           pending={state.missing_fields?.includes('category')}
         />
+        <SummaryRow
+          label="Location"
+          value={state.location}
+          pending={!state.location || state.location === 'unknown'}
+        />
       </div>
     </section>
   )

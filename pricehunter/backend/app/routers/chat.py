@@ -10,4 +10,4 @@ router = APIRouter()
 
 @router.post("/api/chat/message", response_model=ChatMessageResponse)
 async def chat_message(request: ChatMessageRequest) -> ChatMessageResponse:
-    return await chat_session.process_message(request.message, request.session_id)
+    return await chat_session.process_message(request.message, request.session_id, request.location)
