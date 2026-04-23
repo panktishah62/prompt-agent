@@ -21,8 +21,33 @@ _WEBHOOK_CACHE_TTL = timedelta(minutes=30)
 _EXECUTION_PAYLOADS: dict[str, tuple[datetime, dict[str, Any]]] = {}
 
 
+def _normalize_indian_phone(phone_number: str) -> str | None:
+    digits = "".join(char for char in phone_number if char.isdigit())
+    if not digits:
+        return None
+
+    if phone_number.strip().startswith("+"):
+        return f"+{digits}"
+
+    if digits.startswith("91") and len(digits) >= 12:
+        return f"+{digits}"
+
+    if digits.startswith("0") and len(digits) >= 11:
+        return f"+91{digits[1:]}"
+
+    if len(digits) == 10:
+        return f"+91{digits}"
+
+    if 8 <= len(digits) <= 12:
+        return f"+91{digits.lstrip('0')}"
+
+    return None
+
+
 def _call_destination_phone(vendor: VendorInfo) -> str:
-    return settings.test_call_phone.strip() or vendor.phone
+    raw_phone = settings.test_call_phone.strip() or vendor.phone
+    normalized = _normalize_indian_phone(raw_phone)
+    return normalized or raw_phone
 
 
 def _call_prompt(vendor: VendorInfo, product: str) -> str:
@@ -106,9 +131,10 @@ def _auth_headers(api_key: str) -> dict[str, str]:
 
 
 def _build_call_payload(vendor: VendorInfo, product: str) -> dict[str, Any]:
+    normalized_phone = _call_destination_phone(vendor)
     payload: dict[str, Any] = {
         "agent_id": settings.bolna_agent_id,
-        "recipient_phone_number": _call_destination_phone(vendor),
+        "recipient_phone_number": normalized_phone,
         "user_data": {
             "product_name": product,
             "shop_name": vendor.name,
@@ -249,6 +275,8 @@ async def call_vendor(vendor: VendorInfo, product: str, api_key: str | None = No
         )
 
     destination_phone = _call_destination_phone(vendor)
+    if not destination_phone.startswith("+"):
+        logger.warning("Vendor phone could not be normalized for Bolna: vendor=%s phone=%s", vendor.name, vendor.phone)
     if settings.test_call_phone.strip():
         logger.info(
             "Triggering Bolna test call for vendor=%s via test phone=%s",
