@@ -16,7 +16,7 @@ from app.models.schemas import VendorInfo, VoiceCallResult
 logger = logging.getLogger(__name__)
 
 BOLNA_CALL_URL = "https://api.bolna.ai/call"
-BOLNA_EXECUTION_URL = "https://api.bolna.ai/executions/{execution_id}"
+BOLNA_STATUS_URL = "https://api.bolna.ai/call/{call_id}"
 _WEBHOOK_CACHE_TTL = timedelta(minutes=30)
 _EXECUTION_PAYLOADS: dict[str, tuple[datetime, dict[str, Any]]] = {}
 
@@ -105,6 +105,20 @@ def _auth_headers(api_key: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
 
 
+def _build_call_payload(vendor: VendorInfo, product: str) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "agent_id": settings.bolna_agent_id,
+        "recipient_phone_number": _call_destination_phone(vendor),
+        "user_data": {
+            "product_name": product,
+            "shop_name": vendor.name,
+            "phone_number": vendor.phone,
+            "address": vendor.address,
+        },
+    }
+    return payload
+
+
 def _prune_webhook_cache() -> None:
     now = datetime.utcnow()
     expired = [key for key, (created_at, _) in _EXECUTION_PAYLOADS.items() if now - created_at > _WEBHOOK_CACHE_TTL]
@@ -114,9 +128,9 @@ def _prune_webhook_cache() -> None:
 
 def store_execution_webhook(payload: dict[str, Any]) -> str | None:
     execution_id = str(
-        payload.get("id")
+        payload.get("call_id")
+        or payload.get("id")
         or payload.get("execution_id")
-        or payload.get("call_id")
         or payload.get("data", {}).get("id")
         or ""
     ).strip()
@@ -169,11 +183,17 @@ def _extract_transcript_from_payload(payload: dict[str, Any]) -> str | None:
 
 
 def _extract_extracted_data(payload: dict[str, Any]) -> dict[str, Any] | None:
+    extraction = payload.get("extraction")
+    if isinstance(extraction, dict):
+        return extraction
     extracted = payload.get("extracted_data")
     if isinstance(extracted, dict):
         return extracted
     data = payload.get("data")
     if isinstance(data, dict):
+        nested_extraction = data.get("extraction")
+        if isinstance(nested_extraction, dict):
+            return nested_extraction
         nested = data.get("extracted_data")
         if isinstance(nested, dict):
             return nested
@@ -239,30 +259,21 @@ async def call_vendor(vendor: VendorInfo, product: str, api_key: str | None = No
         logger.info("Triggering Bolna call for vendor=%s", vendor.name)
 
     async with httpx.AsyncClient() as client:
+        payload = _build_call_payload(vendor, product)
         response = await client.post(
             BOLNA_CALL_URL,
             headers=_auth_headers(effective_key),
-            json={
-                "agent_id": settings.bolna_agent_id,
-                "recipient_phone_number": destination_phone,
-                "from_phone_number": None,
-                "metadata": {
-                    "vendor_name": vendor.name,
-                    "product": product,
-                    "vendor_phone": vendor.phone,
-                    "dialed_phone": destination_phone,
-                    "test_call_routing": bool(settings.test_call_phone.strip()),
-                    "webhook_url": settings.bolna_webhook_url,
-                },
-                "context_data": {
-                    "product": product,
-                    "vendor_name": vendor.name,
-                    "language_mode": "multi-hi",
-                    "task_prompt": _call_prompt(vendor, product),
-                },
-            },
+            json=payload,
             timeout=30,
         )
+        if response.is_error:
+            logger.warning(
+                "Bolna call request failed for vendor=%s status=%s body=%s payload=%s",
+                vendor.name,
+                response.status_code,
+                response.text,
+                payload,
+            )
         response.raise_for_status()
         payload = response.json()
         call_id = (
@@ -315,7 +326,7 @@ async def poll_call_result(call: VoiceCallResult, timeout_seconds: int = 120) ->
                     return resolved
 
             response = await client.get(
-                BOLNA_EXECUTION_URL.format(execution_id=call.call_id),
+                BOLNA_STATUS_URL.format(call_id=call.call_id),
                 headers=_auth_headers(settings.bolna_api_key),
                 timeout=20,
             )

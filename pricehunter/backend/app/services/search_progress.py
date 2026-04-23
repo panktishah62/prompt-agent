@@ -29,6 +29,14 @@ _SEARCHES: dict[str, SearchProgressSnapshot] = {}
 _TASKS: dict[str, asyncio.Task[None]] = {}
 
 
+async def _run_with_semaphore(
+    semaphore: asyncio.Semaphore,
+    coroutine,
+) -> list[UnifiedResult]:
+    async with semaphore:
+        return await coroutine
+
+
 def _step_id(prefix: str, value: str) -> str:
     normalized = "".join(char.lower() if char.isalnum() else "-" for char in value).strip("-")
     collapsed = "-".join(chunk for chunk in normalized.split("-") if chunk)
@@ -222,8 +230,10 @@ async def _run_background_search(
                         "completed",
                         "Skipped in test-call mode.",
                     )
+            concurrency_limit = max(1, settings.bolna_max_concurrent_calls)
+            semaphore = asyncio.Semaphore(concurrency_limit)
             tasks.extend(
-                asyncio.create_task(_resolve_vendor(snapshot, query, vendor))
+                asyncio.create_task(_run_with_semaphore(semaphore, _resolve_vendor(snapshot, query, vendor)))
                 for vendor in vendors_to_contact
             )
 

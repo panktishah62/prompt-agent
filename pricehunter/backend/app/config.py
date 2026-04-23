@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     google_places_api_key: str = ""
     bolna_api_key: str = ""
     bolna_agent_id: str = ""
+    bolna_max_concurrent_calls: int = 5
     test_call_phone: str = ""
     frontend_origins: str = "http://localhost:5173"
     mongodb_url: str = "mongodb://localhost:27017"

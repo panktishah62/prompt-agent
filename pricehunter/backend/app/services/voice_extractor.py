@@ -64,15 +64,40 @@ def extract_from_structured_data(
     vendor: VendorInfo,
     product: str,
 ) -> UnifiedResult:
-    price = _coerce_float(extracted_data.get("price"))
-    availability = _coerce_bool(extracted_data.get("availability"), default=True)
-    negotiated = _coerce_bool(extracted_data.get("negotiated"), default=False)
+    price = _coerce_float(
+        extracted_data.get("quoted_price")
+        if extracted_data.get("quoted_price") is not None
+        else extracted_data.get("price")
+    )
+    availability = _coerce_bool(
+        extracted_data.get("product_available")
+        if extracted_data.get("product_available") is not None
+        else extracted_data.get("availability"),
+        default=True,
+    )
+    negotiated = _coerce_bool(
+        extracted_data.get("discount_available")
+        if extracted_data.get("discount_available") is not None
+        else extracted_data.get("negotiated"),
+        default=False,
+    )
     delivery_time = extracted_data.get("delivery_time")
     if delivery_time is not None:
         delivery_time = str(delivery_time)
-    notes = extracted_data.get("notes")
-    if notes is not None:
-        notes = str(notes)
+    notes_parts = []
+    for key in (
+        "discount_details",
+        "offers_freebies",
+        "shop_confirmed_name",
+        "alternative_product",
+        "alternative_price",
+        "call_outcome",
+        "notes",
+    ):
+        value = extracted_data.get(key)
+        if value not in (None, "", False):
+            notes_parts.append(f"{key}: {value}")
+    notes = " | ".join(notes_parts) if notes_parts else None
     confidence = _coerce_float(extracted_data.get("confidence")) or 0.74
 
     resolved_notes = notes or f"Asked about {product} via phone inquiry."
