@@ -99,6 +99,16 @@ function ResultCard({ result, rank }) {
         </div>
         {result.address && <p className="text-slate-400">{result.address}</p>}
         {result.notes && <p className="text-slate-400">{result.notes}</p>}
+        {result.source_type === 'online' && result.url && (
+          <a
+            href={result.url}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex w-fit items-center rounded-full border border-sky-300/30 bg-sky-300/10 px-4 py-2 text-xs font-bold uppercase tracking-[0.22em] text-sky-100 transition hover:border-mint/40 hover:text-mint"
+          >
+            Open product link
+          </a>
+        )}
         {result.is_mock && <p className="text-xs uppercase tracking-[0.22em] text-amber-200/90">Demo data</p>}
       </div>
     </article>

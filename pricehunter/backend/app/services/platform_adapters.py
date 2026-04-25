@@ -15,7 +15,7 @@ from app.models.schemas import UnifiedResult
 logger = logging.getLogger(__name__)
 
 SERPAPI_TIMEOUT_SECONDS = 30
-LIVE_RESULTS_PER_PLATFORM = 2
+LIVE_RESULTS_PER_PLATFORM = 1
 SHOPPING_TIME_PATTERN = re.compile(
     r"(\d+\s*(?:mins?|minutes|hours?|days?)|\d+\s*-\s*\d+\s*(?:mins?|minutes|hours?|days?)|same day|next morning|pickup)",
     re.IGNORECASE,
@@ -160,6 +160,9 @@ class PlatformAdapter(abc.ABC):
         ranked_candidates.sort(key=lambda item: item[0], reverse=True)
         return [result for _, result in ranked_candidates[:LIVE_RESULTS_PER_PLATFORM]]
 
+    def _requires_platform_match(self) -> bool:
+        return bool(self.platform_domains or self.source_aliases)
+
     def _sanitize_live_query(self, query: str, location: str | None) -> str:
         cleaned = query
         generic_patterns = [
@@ -212,6 +215,8 @@ class PlatformAdapter(abc.ABC):
                 continue
 
             platform_matched = self._matches_platform(item)
+            if self._requires_platform_match() and not platform_matched:
+                continue
             delivery_time = self._extract_delivery_time(item)
             availability = self._extract_availability(item)
             notes = self._build_live_notes(item)
@@ -221,7 +226,7 @@ class PlatformAdapter(abc.ABC):
                 price=price,
                 delivery_time=delivery_time,
                 availability=availability,
-                url=self._extract_url(item),
+                url=self._extract_url(item) or self._build_search_url(query),
                 notes=notes,
                 is_mock=False,
                 confidence=confidence,
@@ -337,6 +342,9 @@ class PlatformAdapter(abc.ABC):
                 return value.strip()
         return None
 
+    def _build_search_url(self, query: str) -> str | None:
+        return None
+
     def _extract_source_name(self, item: dict[str, Any]) -> str | None:
         for key in ("source", "seller", "merchant", "store"):
             value = item.get(key)
@@ -434,6 +442,9 @@ class AmazonAdapter(PlatformAdapter):
     source_aliases = ("amazon", "amazon india")
     platform_domains = ("amazon.in", "amazon.com")
 
+    def _build_search_url(self, query: str) -> str | None:
+        return f"https://amazon.in/s?k={query.replace(' ', '+')}"
+
     def _search_mock(self, query: str) -> list[UnifiedResult]:
         product = self._normalize_product(query)
         return [
@@ -463,6 +474,9 @@ class FlipkartAdapter(PlatformAdapter):
     category_fit = {"electronics": 0.93, "clothing": 0.84, "hardware": 0.8, "groceries": 0.55}
     source_aliases = ("flipkart",)
     platform_domains = ("flipkart.com",)
+
+    def _build_search_url(self, query: str) -> str | None:
+        return f"https://www.flipkart.com/search?q={query.replace(' ', '%20')}"
 
     def _search_mock(self, query: str) -> list[UnifiedResult]:
         product = self._normalize_product(query)
@@ -494,6 +508,9 @@ class BlinkitAdapter(PlatformAdapter):
     source_aliases = ("blinkit",)
     platform_domains = ("blinkit.com",)
 
+    def _build_search_url(self, query: str) -> str | None:
+        return f"https://blinkit.com/s/?q={query.replace(' ', '%20')}"
+
     def _search_mock(self, query: str) -> list[UnifiedResult]:
         product = self._normalize_product(query)
         return [
@@ -515,6 +532,9 @@ class SwiggyInstamartAdapter(PlatformAdapter):
     category_fit = {"groceries": 0.92, "medicine": 0.7}
     source_aliases = ("swiggy instamart", "instamart", "swiggy")
     platform_domains = ("swiggy.com",)
+
+    def _build_search_url(self, query: str) -> str | None:
+        return f"https://www.swiggy.com/instamart/search?query={query.replace(' ', '%20')}"
 
     def _search_mock(self, query: str) -> list[UnifiedResult]:
         product = self._normalize_product(query)
@@ -538,6 +558,9 @@ class BigBasketAdapter(PlatformAdapter):
     source_aliases = ("bigbasket", "bbnow")
     platform_domains = ("bigbasket.com",)
 
+    def _build_search_url(self, query: str) -> str | None:
+        return f"https://www.bigbasket.com/ps/?q={query.replace(' ', '%20')}"
+
     def _search_mock(self, query: str) -> list[UnifiedResult]:
         product = self._normalize_product(query)
         return [
@@ -559,6 +582,9 @@ class CromaAdapter(PlatformAdapter):
     category_fit = {"electronics": 0.91, "hardware": 0.5}
     source_aliases = ("croma",)
     platform_domains = ("croma.com",)
+
+    def _build_search_url(self, query: str) -> str | None:
+        return f"https://www.croma.com/search/?text={query.replace(' ', '%20')}"
 
     def _search_mock(self, query: str) -> list[UnifiedResult]:
         product = self._normalize_product(query)
@@ -582,6 +608,9 @@ class GenericAdapter(PlatformAdapter):
         self.platform_id = platform_id
         self.source_aliases = (platform_name, platform_id.replace("_", " "))
         self.platform_domains = ()
+
+    def _requires_platform_match(self) -> bool:
+        return True
 
     def _search_mock(self, query: str) -> list[UnifiedResult]:
         product = self._normalize_product(query)
