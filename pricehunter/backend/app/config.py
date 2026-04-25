@@ -24,6 +24,14 @@ class Settings(BaseSettings):
     database_name: str = "pricehunter"
     bolna_webhook_url: str = "http://localhost:8000/api/webhooks/voice"
     mock_voice_calls: bool = True
+    flash_compare_enabled: bool = False
+    flash_compare_categories: str = "electronics"
+    flash_browser_timeout_ms: int = 120000
+    flash_serpapi_timeout_seconds: int = 30
+    browser_use_api_key: str = ""
+    browser_use_proxy_country: str = "in"
+    browser_use_retry_attempts: int = 4
+    browser_use_session_timeout_minutes: int = 5
 
     model_config = SettingsConfigDict(
         env_file=(WORKSPACE_ROOT / ".env", PROJECT_ROOT / ".env", BACKEND_DIR / ".env"),

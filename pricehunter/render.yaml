@@ -33,6 +33,22 @@ services:
         sync: false
       - key: MOCK_VOICE_CALLS
         value: "true"
+      - key: FLASH_COMPARE_ENABLED
+        value: "false"
+      - key: FLASH_COMPARE_CATEGORIES
+        value: electronics
+      - key: FLASH_BROWSER_TIMEOUT_MS
+        value: "120000"
+      - key: FLASH_SERPAPI_TIMEOUT_SECONDS
+        value: "30"
+      - key: BROWSER_USE_API_KEY
+        sync: false
+      - key: BROWSER_USE_PROXY_COUNTRY
+        value: in
+      - key: BROWSER_USE_RETRY_ATTEMPTS
+        value: "4"
+      - key: BROWSER_USE_SESSION_TIMEOUT_MINUTES
+        value: "5"
 
   - type: web
     name: pricehunter-web
