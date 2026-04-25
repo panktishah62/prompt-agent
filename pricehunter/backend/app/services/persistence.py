@@ -82,7 +82,6 @@ async def upsert_product(product: str, category: str) -> dict[str, Any]:
         "product_key": key,
         "canonical_name": product,
         "category": category,
-        "aliases": [product],
         "normalized_tokens": _query_tokens(product),
         "updated_at": now,
     }
@@ -90,12 +89,12 @@ async def upsert_product(product: str, category: str) -> dict[str, Any]:
         {"product_key": key},
         {
             "$set": doc,
-            "$setOnInsert": {"created_at": now},
+            "$setOnInsert": {"created_at": now, "aliases": [product]},
             "$addToSet": {"aliases": product},
         },
         upsert=True,
     )
-    return doc
+    return {**doc, "aliases": [product]}
 
 
 async def upsert_offline_vendor(vendor: VendorInfo, category: str | None = None) -> dict[str, Any]:
@@ -106,22 +105,25 @@ async def upsert_offline_vendor(vendor: VendorInfo, category: str | None = None)
         "vendor_key": vendor_key,
         "source_type": "offline",
         "canonical_name": vendor.name,
-        "aliases": [vendor.name],
         "phone": vendor.phone,
         "address": vendor.address,
         "place_id": vendor.place_id,
         "location": location,
         "rating": vendor.rating,
         "user_rating_count": vendor.user_rating_count,
-        "categories": [category] if category else [],
         "last_seen_at": now,
         "is_mock": vendor.is_mock,
+    }
+    set_on_insert = {
+        "created_at": now,
+        "aliases": [vendor.name],
+        "categories": [category] if category else [],
     }
     await vendor_profiles_collection.update_one(
         {"vendor_key": vendor_key},
         {
             "$set": doc,
-            "$setOnInsert": {"created_at": now},
+            "$setOnInsert": set_on_insert,
             "$addToSet": {
                 "aliases": vendor.name,
                 **({"categories": category} if category else {}),
@@ -129,7 +131,7 @@ async def upsert_offline_vendor(vendor: VendorInfo, category: str | None = None)
         },
         upsert=True,
     )
-    return doc
+    return {**doc, "aliases": [vendor.name], "categories": [category] if category else []}
 
 
 async def upsert_online_vendor(result: UnifiedResult, platform_name: str, platform_id: str) -> dict[str, Any]:
@@ -141,7 +143,6 @@ async def upsert_online_vendor(result: UnifiedResult, platform_name: str, platfo
         "vendor_key": vendor_key,
         "source_type": "online",
         "canonical_name": result.name or platform_name,
-        "aliases": [result.name or platform_name],
         "platform_name": platform_name,
         "platform_id": platform_id,
         "domain": domain,
@@ -153,12 +154,12 @@ async def upsert_online_vendor(result: UnifiedResult, platform_name: str, platfo
         {"vendor_key": vendor_key},
         {
             "$set": doc,
-            "$setOnInsert": {"created_at": now},
+            "$setOnInsert": {"created_at": now, "aliases": [result.name or platform_name]},
             "$addToSet": {"aliases": result.name or platform_name},
         },
         upsert=True,
     )
-    return doc
+    return {**doc, "aliases": [result.name or platform_name]}
 
 
 async def initialize_search_session(
