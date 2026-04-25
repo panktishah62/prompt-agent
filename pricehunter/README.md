@@ -6,6 +6,7 @@ PriceHunter is a hybrid price comparison engine that searches e-commerce platfor
 
 - Structures natural-language shopping queries into product, category, location, and intent.
 - Runs an online pipeline with platform discovery plus pluggable adapters.
+- Optionally enriches electronics searches with Flash Compare cross-store prices through Browser Use Cloud.
 - Runs an offline pipeline with vendor discovery plus live or mock voice calling.
 - Normalizes everything into one `UnifiedResult` schema for comparison.
 - Degrades gracefully into convincing demo data when live APIs are unavailable.
@@ -17,6 +18,7 @@ PriceHunter is a hybrid price comparison engine that searches e-commerce platfor
 - Voice: Bolna
 - Vendor discovery: Google Places API
 - Live online pricing: SerpApi Google Shopping API
+- Cross-store compare pricing: Flash Compare via Browser Use Cloud
 
 ## Local setup
 
@@ -25,7 +27,8 @@ PriceHunter is a hybrid price comparison engine that searches e-commerce platfor
 3. Keep `MOCK_VOICE_CALLS=true` for hackathon demo mode, or set it to `false` with a valid Bolna key and agent ID to enable real vendor calls.
 4. To test live calling safely, set `TEST_CALL_PHONE` to your own number. When set, every Bolna outbound call is routed to that number instead of the discovered vendor number, while keeping the vendor name and product in the call metadata.
 5. For live online prices, set `SERPAPI_API_KEY`. Without it, the online adapter layer falls back to realistic demo listings.
-6. Start the backend:
+6. To enable Flash Compare cross-store prices, set `FLASH_COMPARE_ENABLED=true` and `BROWSER_USE_API_KEY`.
+7. Start the backend:
    ```bash
    python3.12 -m venv .venv
    . .venv/bin/activate
@@ -72,6 +75,12 @@ Backend:
 - `DATABASE_NAME=pricehunter`
 - `BOLNA_WEBHOOK_URL=https://your-backend-domain.onrender.com/api/webhooks/voice`
 - `MOCK_VOICE_CALLS=true` or `false`
+- `FLASH_COMPARE_ENABLED=false` or `true`
+- `BROWSER_USE_API_KEY`
+- `BROWSER_USE_PROXY_COUNTRY=in`
+- `BROWSER_USE_RETRY_ATTEMPTS=4`
+- `BROWSER_USE_SESSION_TIMEOUT_MINUTES=5`
+- `FLASH_BROWSER_TIMEOUT_MS=120000`
 
 Frontend:
 
@@ -87,6 +96,8 @@ Frontend:
 
 - Missing OpenAI credentials falls back to heuristic query structuring and platform selection.
 - Missing `SERPAPI_API_KEY` falls back to simulated online platform listings.
+- Missing `BROWSER_USE_API_KEY` or `FLASH_COMPARE_ENABLED=false` skips Flash Compare and keeps the normal online/offline results.
+- Browser Use tunnel/provider failures are logged and treated as non-fatal enrichment failures.
 - Missing Google Places credentials falls back to mock Indian vendor discovery.
 - Missing Bolna credentials, missing Bolna agent ID, or `MOCK_VOICE_CALLS=true` falls back to instant mock call transcripts.
 - Setting `TEST_CALL_PHONE` routes every real Bolna call to your test phone instead of vendor phone numbers.

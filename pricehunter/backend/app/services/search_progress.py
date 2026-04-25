@@ -17,6 +17,7 @@ from app.models.schemas import (
     VoiceCallResult,
 )
 from app.services import comparator, orchestrator, persistence, query_structurer
+from app.services.flash_compare import flash_platform_strategy, search_flash_compare
 from app.services.online_discovery import PlatformStrategy, discover_platforms
 from app.services.platform_adapters import get_adapters
 from app.services.vendor_discovery import discover_vendors
@@ -156,6 +157,15 @@ def _build_steps(
                     detail="Waiting to start fetch.",
                 )
             )
+        if settings.flash_compare_enabled:
+            steps.append(
+                SearchProgressStep(
+                    id="online-flash-compare",
+                    label="Fetching Flash Compare",
+                    status="pending",
+                    detail="Waiting to start fetch.",
+                )
+            )
     return steps
 
 
@@ -252,6 +262,33 @@ async def _resolve_online_platform(
         return []
 
 
+async def _resolve_flash_compare(
+    snapshot: SearchProgressSnapshot,
+    query: StructuredQuery,
+) -> list[UnifiedResult]:
+    step_id = "online-flash-compare"
+    _set_step(snapshot, step_id, "running", "Fetching cross-store Flash prices.")
+    try:
+        results = await search_flash_compare(query)
+        await _persist_safely(
+            persistence.record_online_results(
+                search_id=snapshot.search_id,
+                query=query,
+                strategy=flash_platform_strategy(),
+                results=results,
+            ),
+            "flash compare results",
+        )
+        _update_partial_results(snapshot, results, query.intent)
+        detail = f"{len(results)} store price(s) added." if results else "No Flash compare prices found."
+        _set_step(snapshot, step_id, "completed", detail)
+        return results
+    except Exception as exc:  # pragma: no cover - external integrations
+        logger.warning("Flash compare fetch failed: %s", exc)
+        _set_step(snapshot, step_id, "failed", "Could not fetch Flash compare prices.")
+        return []
+
+
 async def _run_background_search(
     snapshot: SearchProgressSnapshot,
     query: StructuredQuery,
@@ -292,6 +329,8 @@ async def _run_background_search(
                 asyncio.create_task(_resolve_online_platform(snapshot, query, strategy, adapter))
                 for strategy, adapter in zip(platforms, adapters, strict=False)
             )
+            if settings.flash_compare_enabled:
+                tasks.append(asyncio.create_task(_resolve_flash_compare(snapshot, query)))
 
         completed = await asyncio.gather(*tasks, return_exceptions=True) if tasks else []
         all_results: list[UnifiedResult] = []
@@ -373,7 +412,10 @@ async def start_search(
         query=query,
         status="running",
         discovered_vendors=vendors,
-        online_platforms=[strategy.platform_name for strategy in platforms],
+        online_platforms=[
+            *[strategy.platform_name for strategy in platforms],
+            *(["Flash Compare"] if search_strategy in {"both", "online"} and settings.flash_compare_enabled else []),
+        ],
         steps=_build_steps(query, search_strategy, vendors, platforms),
         started_at=started_at,
         updated_at=started_at,

@@ -5,6 +5,7 @@ import logging
 
 from app.models.schemas import StructuredQuery, UnifiedResult
 from app.services import persistence
+from app.services.flash_compare import flash_platform_strategy, search_flash_compare
 from app.services.online_discovery import PlatformStrategy, discover_platforms
 from app.services.platform_adapters import get_adapters
 
@@ -80,6 +81,23 @@ async def run(query: StructuredQuery, search_id: str | None = None) -> list[Unif
                 f"online results {strategy.platform_id}",
             )
         combined.extend(result)
+
+    try:
+        flash_results = await search_flash_compare(query)
+        if flash_results:
+            if search_id:
+                await _persist_safely(
+                    persistence.record_online_results(
+                        search_id=search_id,
+                        query=query,
+                        strategy=flash_platform_strategy(),
+                        results=flash_results,
+                    ),
+                    "flash compare results",
+                )
+            combined.extend(flash_results)
+    except Exception as exc:  # pragma: no cover - external provider
+        logger.warning("Flash compare provider failed: %s", exc)
 
     combined = _dedupe_results(combined)
     logger.info("Online pipeline completed with %s results", len(combined))
