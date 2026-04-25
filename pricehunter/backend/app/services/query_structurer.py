@@ -6,7 +6,7 @@ import re
 from openai import AsyncOpenAI
 
 from app.config import settings
-from app.models.schemas import StructuredQuery, UrgencyOption
+from app.models.schemas import ProductPrecisionAssessment, StructuredQuery, UrgencyOption
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +35,23 @@ User: "fastest delivery for iPhone 15 pro max"
 Output: {"product": "iPhone 15 Pro Max", "category": "electronics", "location": "unknown", "intent": "fastest", "urgency": "immediate", "raw_query": "fastest delivery for iPhone 15 pro max"}
 
 Return ONLY the JSON object, no markdown, no explanation.
+""".strip()
+
+PRECISION_SYSTEM_PROMPT = """
+You are a shopping intake assistant. Decide whether the user's current request is precise enough to safely start product search.
+
+Return ONLY valid JSON with these exact fields:
+- "refined_product": a cleaned canonical product name based on the user's latest context
+- "precise_enough": boolean
+- "missing_attributes": a short list of the important missing attributes still needed before search
+- "follow_up_questions": 1 to 4 concise questions that would make the request search-ready
+
+Rules:
+- Be strict. If the request could match multiple materially different products, set "precise_enough" to false.
+- For electronics, common attributes may include product type, brand, model, storage/capacity, color, wattage/power, size, or budget.
+- For medicines, common attributes may include medicine/brand name, strength, dosage form, quantity, and whether substitutes are okay.
+- Tailor the questions to the product. Do not ask irrelevant things like color for paracetamol.
+- If enough detail is already present to identify a real listing confidently, set "precise_enough" to true and return no follow-up questions.
 """.strip()
 
 CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
@@ -127,6 +144,36 @@ CATEGORY_KEYWORDS: dict[str, tuple[str, ...]] = {
     ),
 }
 
+VAGUE_PRODUCT_TERMS = {
+    "iron",
+    "phone",
+    "mobile",
+    "iphone",
+    "laptop",
+    "tv",
+    "television",
+    "tablet",
+    "earphones",
+    "earbuds",
+    "headphones",
+    "speaker",
+    "charger",
+    "monitor",
+    "camera",
+    "printer",
+    "watch",
+    "fridge",
+    "refrigerator",
+    "ac",
+    "air conditioner",
+    "washing machine",
+    "medicine",
+    "tablet",
+    "capsule",
+    "syrup",
+    "paracetamol",
+}
+
 
 def is_supported_category(category: str | None) -> bool:
     return (category or "").strip().lower() in SUPPORTED_CATEGORIES
@@ -167,11 +214,17 @@ def infer_location(raw_query: str) -> str:
 def infer_product(raw_query: str) -> str:
     location_stripped = re.split(r"\b(?:near me|near|in|at)\b", raw_query, maxsplit=1, flags=re.IGNORECASE)[0]
     cleaned = re.sub(
-        r"\b(cheapest|cheap|fastest|best|best value|near|near me|in|find|get|need|buy|delivery|for)\b",
+        (
+            r"\b("
+            r"cheapest|cheap|fastest|best|best value|near|near me|in|find|get|need|buy|delivery|for|"
+            r"want|looking|searching|purchase|order"
+            r")\b"
+        ),
         "",
         location_stripped,
         flags=re.IGNORECASE,
     )
+    cleaned = re.sub(r"\b(i|me|myself|to|a|an)\b", "", cleaned, flags=re.IGNORECASE)
     cleaned = re.sub(r"\s+", " ", cleaned).strip(" ,")
     return cleaned or raw_query.strip()
 
@@ -187,6 +240,142 @@ def infer_urgency(raw_query: str) -> UrgencyOption:
     if any(token in lowered for token in ("no rush", "flexible", "anytime", "whenever")):
         return "no rush"
     return "immediate"
+
+
+def _normalize_product_text(value: str) -> str:
+    return re.sub(r"\s+", " ", value).strip(" ,")
+
+
+def _fallback_follow_up_questions(product: str, category: str | None) -> list[str]:
+    normalized = product.lower()
+
+    if "iron" in normalized:
+        return [
+            "Do you need a dry iron, steam iron, garment steamer, or ironing press?",
+            "Any preferred brand, like Philips, Bajaj, Havells, or Usha?",
+            "What budget range should I stay within?",
+            "Any must-have spec like wattage, soleplate type, or travel use?",
+        ]
+
+    if category == "medicine" or any(term in normalized for term in ("paracetamol", "tablet", "capsule", "syrup")):
+        return [
+            "Which medicine or brand do you need exactly?",
+            "What strength or dosage should I look for, like 500 mg or 650 mg?",
+            "How much quantity do you need?",
+            "Are substitutes okay, or do you need one exact brand?",
+        ]
+
+    if any(term in normalized for term in ("iphone", "phone", "mobile", "smartphone")):
+        return [
+            "Which exact brand and model do you want?",
+            "What storage or RAM variant should I search for?",
+            "Any preferred color?",
+            "What budget range should I stay within?",
+        ]
+
+    return [
+        "Which exact brand or model should I search for?",
+        "What key specification or variant matters most for this item?",
+        "What budget range should I stay within?",
+    ]
+
+
+def _fallback_precision_assessment(
+    raw_query: str,
+    category: str | None = None,
+    current_product: str | None = None,
+) -> ProductPrecisionAssessment:
+    product = _normalize_product_text(current_product or infer_product(raw_query))
+    normalized = product.lower()
+    tokens = re.findall(r"[a-z0-9]+", normalized)
+    has_numbers = bool(re.search(r"\d", normalized))
+    has_variant = bool(
+        re.search(
+            r"\b(pro|max|plus|mini|ultra|air|steam|dry|press|automatic|semi|500mg|650mg|128gb|256gb|512gb|1tb)\b",
+            normalized,
+        )
+    )
+    has_brand = bool(
+        re.search(
+            r"\b(apple|iphone|samsung|oneplus|redmi|xiaomi|vivo|oppo|realme|boat|jbl|sony|philips|bajaj|havells|usha|dolo|crocin|calpol)\b",
+            normalized,
+        )
+    )
+
+    precise_enough = True
+    missing_attributes: list[str] = []
+
+    if not normalized or normalized in VAGUE_PRODUCT_TERMS or len(tokens) <= 1:
+        precise_enough = False
+
+    if category == "electronics":
+        if "iron" in normalized and not any(term in normalized for term in ("steam", "dry", "press", "steamer")):
+            precise_enough = False
+            missing_attributes.append("product type")
+        if not (has_brand or has_numbers or has_variant) and len(tokens) <= 2:
+            precise_enough = False
+        if not has_brand:
+            missing_attributes.append("brand")
+        if not (has_numbers or has_variant):
+            missing_attributes.append("specification or variant")
+    elif category == "medicine":
+        if not has_numbers:
+            precise_enough = False
+            missing_attributes.append("strength")
+        if len(tokens) <= 2:
+            precise_enough = False
+        missing_attributes.append("quantity")
+    else:
+        if len(tokens) <= 1:
+            precise_enough = False
+            missing_attributes.append("exact product name")
+
+    missing_attributes = list(dict.fromkeys(attr for attr in missing_attributes if attr))
+    follow_up_questions = [] if precise_enough else _fallback_follow_up_questions(product or raw_query, category)
+
+    return ProductPrecisionAssessment(
+        refined_product=product or raw_query.strip(),
+        precise_enough=precise_enough,
+        missing_attributes=missing_attributes,
+        follow_up_questions=follow_up_questions,
+    )
+
+
+async def analyze_product_precision(
+    raw_query: str,
+    category: str | None = None,
+    current_product: str | None = None,
+) -> ProductPrecisionAssessment:
+    if not settings.openai_api_key:
+        return _fallback_precision_assessment(raw_query, category, current_product)
+
+    client = AsyncOpenAI(api_key=settings.openai_api_key)
+    context = (
+        f"Raw user context: {raw_query}\n"
+        f"Current category: {category or 'unknown'}\n"
+        f"Current product candidate: {current_product or 'unknown'}"
+    )
+
+    try:
+        response = await client.responses.parse(
+            model=settings.openai_model,
+            input=[
+                {"role": "system", "content": PRECISION_SYSTEM_PROMPT},
+                {"role": "user", "content": context},
+            ],
+            text_format=ProductPrecisionAssessment,
+            temperature=0,
+        )
+        assessment = response.output_parsed
+        if assessment is None:
+            raise ValueError("OpenAI returned no parsed ProductPrecisionAssessment.")
+        assessment.refined_product = _normalize_product_text(assessment.refined_product or current_product or "")
+        if not assessment.refined_product:
+            assessment.refined_product = _normalize_product_text(current_product or infer_product(raw_query))
+        return assessment
+    except Exception as exc:  # pragma: no cover - external API
+        logger.warning("Product precision analysis failed, using fallback: %s", exc)
+        return _fallback_precision_assessment(raw_query, category, current_product)
 
 
 def _best_effort_structure(raw_query: str) -> StructuredQuery:

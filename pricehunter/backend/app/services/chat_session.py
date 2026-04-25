@@ -17,6 +17,7 @@ logger = logging.getLogger(__name__)
 _SESSIONS: dict[str, ConversationState] = {}
 
 GENERIC_PRODUCT_TERMS = {
+    "iron",
     "iphone",
     "phone",
     "mobile",
@@ -86,6 +87,19 @@ def _is_specific_product(product: str | None, category: str | None) -> bool:
     return True
 
 
+async def _refresh_product_precision(state: ConversationState) -> None:
+    candidate_product = state.product or query_structurer.infer_product(state.raw_query)
+    assessment = await query_structurer.analyze_product_precision(
+        raw_query=state.raw_query,
+        category=state.category,
+        current_product=candidate_product,
+    )
+    state.product = assessment.refined_product or candidate_product
+    state.product_precise = assessment.precise_enough and _is_specific_product(state.product, state.category)
+    state.product_missing_attributes = assessment.missing_attributes
+    state.product_follow_up_questions = assessment.follow_up_questions
+
+
 def _parse_urgency(message: str) -> str | None:
     lowered = message.lower()
     if any(token in lowered for token in ("immediate", "right now", "asap", "today", "urgent", "now")):
@@ -120,7 +134,7 @@ def _next_missing_field(state: ConversationState) -> ChatField | None:
 
 def _update_missing_fields(state: ConversationState) -> None:
     missing: list[ChatField] = []
-    if not _is_specific_product(state.product, state.category):
+    if not state.product_precise or not _is_specific_product(state.product, state.category):
         missing.append("product")
     if not state.urgency:
         missing.append("urgency")
@@ -142,6 +156,25 @@ def _suggested_replies(field: ChatField | None) -> list[str]:
     return []
 
 
+def _product_suggested_replies(state: ConversationState) -> list[str]:
+    normalized = (state.product or "").lower()
+    if "iron" in normalized:
+        return [
+            "Philips steam iron under 3000",
+            "Bajaj dry iron 1000W",
+            "Usha garment steamer",
+        ]
+    if state.category == "medicine" or any(
+        term in normalized for term in ("paracetamol", "tablet", "capsule", "syrup")
+    ):
+        return [
+            "Dolo 650 tablets, 1 strip",
+            "Paracetamol 500 mg, 10 tablets",
+            "Calpol 650, any brand substitute okay",
+        ]
+    return ["iPhone 16 128GB Black", "boat Airdopes 141", "paracetamol 650 mg tablets"]
+
+
 def _parse_category(message: str) -> str | None:
     lowered = message.lower().strip()
     allowed = ("groceries", "electronics", "clothing", "medicine", "hardware", "services")
@@ -157,6 +190,9 @@ def _unsupported_category_response(state: ConversationState) -> ChatMessageRespo
     assistant_message = query_structurer.unsupported_category_message()
     state.category = None
     state.product = None
+    state.product_precise = False
+    state.product_missing_attributes = []
+    state.product_follow_up_questions = []
     state.search_strategy = None
     state.awaiting_field = "product"
     state.missing_fields = ["product", "urgency", "intent", "category"]
@@ -173,6 +209,14 @@ def _unsupported_category_response(state: ConversationState) -> ChatMessageRespo
 def _question_for_state(state: ConversationState) -> str:
     if state.awaiting_field == "product":
         existing = state.product or "that"
+        if state.product_follow_up_questions:
+            lines = [
+                f'I want to avoid a vague search. "{existing}" still needs a bit more detail before I start looking.',
+                "Please reply with these details:",
+            ]
+            for index, question in enumerate(state.product_follow_up_questions, start=1):
+                lines.append(f"{index}. {question}")
+            return "\n".join(lines)
         return (
             f"I need the exact product or service before I search. \"{existing}\" is still too broad. "
             "Please reply with the precise item, like \"iPhone 16 128GB\" or \"paracetamol tablets\"."
@@ -221,27 +265,31 @@ async def _merge_message_into_state(state: ConversationState, message: str) -> N
             state.urgency_prompt_count += 1
             if state.urgency_prompt_count >= 1:
                 state.urgency = "immediate"
+        await _refresh_product_precision(state)
         return
 
     if state.awaiting_field == "intent":
+        await _refresh_product_precision(state)
         return
 
     if state.awaiting_field == "category":
         parsed = _parse_category(message) or query_structurer.infer_category(message)
         if parsed:
             state.category = parsed
+        await _refresh_product_precision(state)
         return
 
     if state.awaiting_field == "product":
-        structured = await query_structurer.structure_query(message)
+        structured = await query_structurer.structure_query(state.raw_query)
         state.product = structured.product or _normalize_whitespace(message)
-        if not state.category:
+        if structured.category:
             state.category = structured.category
         if structured.location != "unknown":
             state.location = structured.location
+        await _refresh_product_precision(state)
         return
 
-    structured = await query_structurer.structure_query(message)
+    structured = await query_structurer.structure_query(state.raw_query)
     if structured.product:
         state.product = structured.product
     if structured.category:
@@ -254,6 +302,8 @@ async def _merge_message_into_state(state: ConversationState, message: str) -> N
 
     if not state.urgency:
         state.urgency = None
+
+    await _refresh_product_precision(state)
 
 
 def _build_structured_query(state: ConversationState) -> StructuredQuery:
@@ -292,7 +342,11 @@ async def process_message(
             assistant_message=assistant_message,
             state=state,
             ready_to_search=False,
-            suggested_replies=_suggested_replies(state.awaiting_field),
+            suggested_replies=(
+                _product_suggested_replies(state)
+                if state.awaiting_field == "product"
+                else _suggested_replies(state.awaiting_field)
+            ),
         )
 
     state.search_strategy = _decide_search_strategy(state)

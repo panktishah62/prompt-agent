@@ -24,6 +24,15 @@ class StructuredQuery(BaseModel):
     raw_query: str
 
 
+class ProductPrecisionAssessment(BaseModel):
+    """Whether a product request is precise enough to search."""
+
+    refined_product: str
+    precise_enough: bool
+    missing_attributes: list[str] = Field(default_factory=list)
+    follow_up_questions: list[str] = Field(default_factory=list)
+
+
 class UnifiedResult(BaseModel):
     """THE core schema. Both pipelines MUST return a list of these."""
 
@@ -122,6 +131,9 @@ class ConversationState(BaseModel):
     search_strategy: Optional[SearchStrategy] = None
     raw_query: str = ""
     urgency_prompt_count: int = 0
+    product_precise: bool = False
+    product_missing_attributes: list[str] = Field(default_factory=list)
+    product_follow_up_questions: list[str] = Field(default_factory=list)
 
 
 class ChatMessageRequest(BaseModel):
