@@ -86,11 +86,14 @@ async def run(query: StructuredQuery, search_id: str | None = None) -> list[Unif
         flash_results = await search_flash_compare(query)
         if flash_results:
             if search_id:
-                await persistence.record_online_results(
-                    search_id=search_id,
-                    query=query,
-                    strategy=flash_platform_strategy(),
-                    results=flash_results,
+                await _persist_safely(
+                    persistence.record_online_results(
+                        search_id=search_id,
+                        query=query,
+                        strategy=flash_platform_strategy(),
+                        results=flash_results,
+                    ),
+                    "flash compare results",
                 )
             combined.extend(flash_results)
     except Exception as exc:  # pragma: no cover - external provider
