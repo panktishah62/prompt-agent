@@ -270,11 +270,14 @@ async def _resolve_flash_compare(
     _set_step(snapshot, step_id, "running", "Fetching cross-store Flash prices.")
     try:
         results = await search_flash_compare(query)
-        await persistence.record_online_results(
-            search_id=snapshot.search_id,
-            query=query,
-            strategy=flash_platform_strategy(),
-            results=results,
+        await _persist_safely(
+            persistence.record_online_results(
+                search_id=snapshot.search_id,
+                query=query,
+                strategy=flash_platform_strategy(),
+                results=results,
+            ),
+            "flash compare results",
         )
         _update_partial_results(snapshot, results, query.intent)
         detail = f"{len(results)} store price(s) added." if results else "No Flash compare prices found."
