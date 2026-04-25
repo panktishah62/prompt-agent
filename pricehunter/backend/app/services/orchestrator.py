@@ -3,11 +3,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+import uuid
 from typing import Optional
 
-from app.database import queries_collection, results_collection
 from app.models.schemas import SearchResponse, SearchStrategy, StructuredQuery, UnifiedResult
-from app.services import comparator, offline_pipeline, online_pipeline, query_structurer
+from app.services import comparator, offline_pipeline, online_pipeline, persistence, query_structurer
 
 logger = logging.getLogger(__name__)
 
@@ -17,19 +17,17 @@ class UnsupportedCategoryError(ValueError):
 
 
 async def store_results(query: StructuredQuery, results: list[UnifiedResult]) -> None:
-    try:
-        await queries_collection.insert_one(query.model_dump(mode="json"))
-        if results:
-            await results_collection.insert_many([result.model_dump(mode="json") for result in results])
-    except Exception as exc:  # pragma: no cover - depends on external service
-        logger.warning("Failed to store results in MongoDB: %s", exc)
+    logger.info("Legacy store_results called for product=%s with %s result(s)", query.product, len(results))
 
 
 async def run_search_structured(
     structured_query: StructuredQuery,
     search_strategy: SearchStrategy = "both",
+    request_metadata: dict[str, str | None] | None = None,
+    session_id: str | None = None,
 ) -> SearchResponse:
     start_time = time.time()
+    search_id = str(uuid.uuid4())
     if not query_structurer.is_supported_category(structured_query.category):
         raise UnsupportedCategoryError(query_structurer.unsupported_category_message())
     logger.info(
@@ -37,20 +35,28 @@ async def run_search_structured(
         structured_query.product,
         search_strategy,
     )
+    await persistence.initialize_search_session(
+        search_id=search_id,
+        query=structured_query,
+        search_strategy=search_strategy,
+        request_metadata=request_metadata,
+        session_id=session_id,
+        source_flow="api",
+    )
 
     online_results: list[UnifiedResult] | Exception = []
     offline_results: list[UnifiedResult] | Exception = []
 
     if search_strategy == "both":
         online_results, offline_results = await asyncio.gather(
-            online_pipeline.run(structured_query),
-            offline_pipeline.run(structured_query),
+            online_pipeline.run(structured_query, search_id=search_id),
+            offline_pipeline.run(structured_query, search_id=search_id),
             return_exceptions=True,
         )
     elif search_strategy == "online":
-        online_results = await online_pipeline.run(structured_query)
+        online_results = await online_pipeline.run(structured_query, search_id=search_id)
     else:
-        offline_results = await offline_pipeline.run(structured_query)
+        offline_results = await offline_pipeline.run(structured_query, search_id=search_id)
 
     if isinstance(online_results, Exception):
         logger.warning("Online pipeline failed: %s", online_results)
@@ -62,9 +68,14 @@ async def run_search_structured(
     all_results = online_results + offline_results
     ranked_results = comparator.rank(all_results, structured_query.intent)
 
-    await store_results(structured_query, ranked_results)
-
     total_time = time.time() - start_time
+    await persistence.complete_search_session(
+        search_id=search_id,
+        query=structured_query,
+        final_results=ranked_results,
+        status="completed",
+        total_time_seconds=round(total_time, 2),
+    )
     logger.info(
         "Search complete: total=%s online=%s offline=%s in %.2fs",
         len(ranked_results),
@@ -83,7 +94,11 @@ async def run_search_structured(
     )
 
 
-async def run_search(raw_query: str, location: Optional[str] = None) -> SearchResponse:
+async def run_search(
+    raw_query: str,
+    location: Optional[str] = None,
+    request_metadata: dict[str, str | None] | None = None,
+) -> SearchResponse:
     start_time = time.time()
     logger.info("Running orchestrated search for query=%s", raw_query)
 
@@ -91,6 +106,10 @@ async def run_search(raw_query: str, location: Optional[str] = None) -> SearchRe
     if location:
         structured_query.location = location
 
-    result = await run_search_structured(structured_query, search_strategy="both")
+    result = await run_search_structured(
+        structured_query,
+        search_strategy="both",
+        request_metadata=request_metadata,
+    )
     result.total_time_seconds = round(time.time() - start_time, 2)
     return result

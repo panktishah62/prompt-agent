@@ -1,0 +1,9 @@
+{
+  "issues_found": 7,
+  "fixes_applied": 5,
+  "fixes_skipped": [],
+  "original_overall": 3.85,
+  "patched_overall": 4.79,
+  "mode": "llm",
+  "llm_last_error": null
+}

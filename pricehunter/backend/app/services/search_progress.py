@@ -16,7 +16,7 @@ from app.models.schemas import (
     VendorInfo,
     VoiceCallResult,
 )
-from app.services import comparator, orchestrator, query_structurer
+from app.services import comparator, orchestrator, persistence, query_structurer
 from app.services.online_discovery import PlatformStrategy, discover_platforms
 from app.services.platform_adapters import get_adapters
 from app.services.vendor_discovery import discover_vendors
@@ -161,15 +161,36 @@ async def _resolve_vendor(
     _set_step(snapshot, step_id, "running", "Calling vendor for live availability.")
     try:
         call = await call_vendor(vendor, query.product)
+        await persistence.record_call_attempt(
+            search_id=snapshot.search_id,
+            query=query,
+            call=call,
+        )
         completed = await poll_call_result(call)
         if completed.status != "completed" and not completed.extracted_data:
+            await persistence.record_call_attempt(
+                search_id=snapshot.search_id,
+                query=query,
+                call=completed,
+            )
             _set_step(snapshot, step_id, "failed", f"Call ended with status: {completed.status}.")
             return []
         if not completed.transcript and not completed.extracted_data:
+            await persistence.record_call_attempt(
+                search_id=snapshot.search_id,
+                query=query,
+                call=completed,
+            )
             _set_step(snapshot, step_id, "failed", "Call completed without usable result data.")
             return []
 
         result = await extract_from_call_result(completed, query.product)
+        await persistence.record_call_attempt(
+            search_id=snapshot.search_id,
+            query=query,
+            call=completed,
+            extracted_result=result,
+        )
         _update_partial_results(snapshot, [result], query.intent)
         detail = "Quote captured."
         if result.price is not None:
@@ -193,6 +214,12 @@ async def _resolve_online_platform(
     try:
         raw_results = await adapter.search(strategy.search_query, location=query.location)
         results = [_apply_online_strategy_name(result, strategy) for result in raw_results]
+        await persistence.record_online_results(
+            search_id=snapshot.search_id,
+            query=query,
+            strategy=strategy,
+            results=results,
+        )
         _update_partial_results(snapshot, results, query.intent)
         detail = f"{len(results)} listing(s) added." if results else "No usable listings found."
         _set_step(snapshot, step_id, "completed", detail)
@@ -267,12 +294,26 @@ async def _run_background_search(
         snapshot.partial_results = ranked
         snapshot.status = "completed"
         _touch(snapshot)
-        await orchestrator.store_results(query, ranked)
+        await persistence.complete_search_session(
+            search_id=snapshot.search_id,
+            query=query,
+            final_results=ranked,
+            status="completed",
+            total_time_seconds=round(time.time() - started, 2),
+        )
     except Exception as exc:  # pragma: no cover - background orchestration
         logger.exception("Background search failed for %s", query.product)
         snapshot.status = "failed"
         snapshot.error = str(exc)
         _touch(snapshot)
+        await persistence.complete_search_session(
+            search_id=snapshot.search_id,
+            query=query,
+            final_results=snapshot.partial_results,
+            status="failed",
+            error=str(exc),
+            total_time_seconds=round(time.time() - started, 2),
+        )
     finally:
         _TASKS.pop(snapshot.search_id, None)
 
@@ -280,6 +321,8 @@ async def _run_background_search(
 async def start_search(
     query: StructuredQuery,
     search_strategy: SearchStrategy = "both",
+    request_metadata: dict[str, str | None] | None = None,
+    session_id: str | None = None,
 ) -> SearchProgressSnapshot:
     if not query_structurer.is_supported_category(query.category):
         raise orchestrator.UnsupportedCategoryError(query_structurer.unsupported_category_message())
@@ -306,6 +349,16 @@ async def start_search(
         steps=_build_steps(query, search_strategy, vendors, platforms),
         started_at=started_at,
         updated_at=started_at,
+    )
+    await persistence.initialize_search_session(
+        search_id=snapshot.search_id,
+        query=query,
+        search_strategy=search_strategy,
+        request_metadata=request_metadata,
+        session_id=session_id,
+        source_flow="chat",
+        discovered_vendors=vendors,
+        online_platforms=platforms,
     )
     _SEARCHES[snapshot.search_id] = snapshot
     _TASKS[snapshot.search_id] = asyncio.create_task(

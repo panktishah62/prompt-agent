@@ -4,6 +4,7 @@ import asyncio
 import logging
 
 from app.models.schemas import StructuredQuery, UnifiedResult
+from app.services import persistence
 from app.services.online_discovery import PlatformStrategy, discover_platforms
 from app.services.platform_adapters import get_adapters
 
@@ -42,7 +43,7 @@ def _dedupe_results(results: list[UnifiedResult]) -> list[UnifiedResult]:
     return deduped
 
 
-async def run(query: StructuredQuery) -> list[UnifiedResult]:
+async def run(query: StructuredQuery, search_id: str | None = None) -> list[UnifiedResult]:
     logger.info("Starting online pipeline for %s", query.product)
     strategies = await discover_platforms(query)
     if not strategies:
@@ -61,6 +62,13 @@ async def run(query: StructuredQuery) -> list[UnifiedResult]:
         if isinstance(result, Exception):
             logger.warning("Adapter %s failed: %s", strategy.platform_id, result)
             continue
+        if search_id:
+            await persistence.record_online_results(
+                search_id=search_id,
+                query=query,
+                strategy=strategy,
+                results=result,
+            )
         combined.extend(result)
 
     combined = _dedupe_results(combined)

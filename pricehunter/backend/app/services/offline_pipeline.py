@@ -5,6 +5,7 @@ import logging
 
 from app.config import settings
 from app.models.schemas import StructuredQuery, UnifiedResult, VoiceCallResult
+from app.services import persistence
 from app.services.vendor_discovery import discover_vendors
 from app.services.voice_agent import call_all_vendors, poll_call_result
 from app.services.voice_extractor import extract_from_call_result
@@ -16,7 +17,7 @@ async def _resolve_call(call: VoiceCallResult) -> VoiceCallResult:
     return await poll_call_result(call)
 
 
-async def run(query: StructuredQuery) -> list[UnifiedResult]:
+async def run(query: StructuredQuery, search_id: str | None = None) -> list[UnifiedResult]:
     logger.info("Starting offline pipeline for %s", query.product)
     location = query.location if query.location != "unknown" else "Rajkot"
     vendors = await discover_vendors(query.product, query.category, location)
@@ -43,6 +44,12 @@ async def run(query: StructuredQuery) -> list[UnifiedResult]:
         if isinstance(completed, Exception):
             logger.warning("Call resolution failed: %s", completed)
             continue
+        if search_id:
+            await persistence.record_call_attempt(
+                search_id=search_id,
+                query=query,
+                call=completed,
+            )
         if completed.status != "completed" or not completed.transcript:
             if not completed.extracted_data:
                 logger.info("Skipping call %s with status=%s", completed.call_id, completed.status)
@@ -55,6 +62,13 @@ async def run(query: StructuredQuery) -> list[UnifiedResult]:
         if isinstance(item, Exception):
             logger.warning("Transcript extraction failed for call %s: %s", call.call_id, item)
             continue
+        if search_id:
+            await persistence.record_call_attempt(
+                search_id=search_id,
+                query=query,
+                call=call,
+                extracted_result=item,
+            )
         results.append(item)
 
     logger.info("Offline pipeline completed with %s results", len(results))

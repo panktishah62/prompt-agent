@@ -1,0 +1,1005 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PriceHunter Pitch Deck</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=Space+Grotesk:wght@500;700&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      :root {
+        --bg: #060b14;
+        --bg-soft: #0a1220;
+        --panel: rgba(13, 21, 37, 0.86);
+        --panel-strong: rgba(17, 26, 44, 0.94);
+        --border: rgba(255, 255, 255, 0.09);
+        --text: #f7fbff;
+        --muted: #97a8c0;
+        --mint: #00ff88;
+        --cyan: #00b8ff;
+        --gold: #ffd479;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        background:
+          radial-gradient(circle at 12% 10%, rgba(0, 255, 136, 0.16), transparent 28%),
+          radial-gradient(circle at 85% 18%, rgba(0, 184, 255, 0.18), transparent 26%),
+          radial-gradient(circle at 50% 60%, rgba(255, 212, 121, 0.07), transparent 34%),
+          linear-gradient(180deg, #07101c 0%, #050910 100%);
+        color: var(--text);
+        font-family: "Inter", sans-serif;
+      }
+
+      body {
+        min-height: 100vh;
+      }
+
+      .deck {
+        width: 1440px;
+        margin: 0 auto;
+        padding: 56px 56px 72px;
+        position: relative;
+        overflow: hidden;
+      }
+
+      .deck::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        background:
+          linear-gradient(130deg, rgba(255, 255, 255, 0.04), transparent 20%),
+          linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 30%);
+        pointer-events: none;
+      }
+
+      .topbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 42px;
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 14px;
+      }
+
+      .brand-bolt {
+        width: 42px;
+        height: 42px;
+        border-radius: 14px;
+        display: grid;
+        place-items: center;
+        background: linear-gradient(135deg, var(--mint), #6bffbe);
+        color: #051014;
+        font-size: 24px;
+        font-weight: 900;
+        box-shadow: 0 16px 36px rgba(0, 255, 136, 0.25);
+      }
+
+      .brand-name {
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 30px;
+        font-weight: 700;
+        letter-spacing: -0.03em;
+      }
+
+      .brand-tagline {
+        margin-top: 4px;
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+      }
+
+      .nav {
+        display: flex;
+        gap: 12px;
+        color: #c0d2ea;
+        font-size: 13px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+      }
+
+      .nav-pill {
+        padding: 10px 14px;
+        border: 1px solid var(--border);
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      section {
+        position: relative;
+        z-index: 1;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: 1.2fr 0.8fr;
+        gap: 28px;
+        align-items: stretch;
+        margin-bottom: 38px;
+      }
+
+      .hero-copy {
+        padding: 10px 6px 0 0;
+      }
+
+      .eyebrow {
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        border: 1px solid rgba(0, 255, 136, 0.22);
+        background: rgba(0, 255, 136, 0.08);
+        color: #bfffe3;
+        border-radius: 999px;
+        padding: 10px 16px;
+        font-size: 13px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+
+      .hero h1 {
+        margin: 18px 0 16px;
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 66px;
+        line-height: 0.96;
+        letter-spacing: -0.055em;
+      }
+
+      .hero p.lead {
+        max-width: 780px;
+        color: #c4d4e8;
+        font-size: 20px;
+        line-height: 1.6;
+        margin: 0;
+      }
+
+      .hero-note {
+        margin-top: 28px;
+        display: inline-flex;
+        align-items: center;
+        gap: 10px;
+        font-size: 15px;
+        color: #cbe5ff;
+        padding: 14px 18px;
+        background: rgba(255, 255, 255, 0.04);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+      }
+
+      .hero-aside {
+        border: 1px solid rgba(0, 184, 255, 0.18);
+        background: linear-gradient(180deg, rgba(14, 22, 38, 0.95), rgba(9, 14, 24, 0.96));
+        border-radius: 28px;
+        padding: 26px 24px 24px;
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.04),
+          0 20px 80px rgba(0, 0, 0, 0.32);
+      }
+
+      .aside-kicker {
+        color: #8ec7ff;
+        font-size: 12px;
+        letter-spacing: 0.22em;
+        text-transform: uppercase;
+        font-weight: 800;
+      }
+
+      .aside-title {
+        margin-top: 12px;
+        font-size: 30px;
+        font-weight: 800;
+        line-height: 1.15;
+      }
+
+      .aside-points {
+        margin: 18px 0 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 14px;
+      }
+
+      .aside-points li {
+        color: #d4e3f6;
+        font-size: 15px;
+        line-height: 1.55;
+        padding-left: 22px;
+        position: relative;
+      }
+
+      .aside-points li::before {
+        content: "";
+        position: absolute;
+        left: 0;
+        top: 10px;
+        width: 9px;
+        height: 9px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, var(--mint), var(--cyan));
+        box-shadow: 0 0 18px rgba(0, 255, 136, 0.45);
+      }
+
+      .metrics-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 18px;
+        margin-bottom: 24px;
+      }
+
+      .metric {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 28px;
+        padding: 24px 24px 22px;
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.04),
+          0 10px 40px rgba(0, 0, 0, 0.22);
+      }
+
+      .metric-label {
+        color: var(--muted);
+        font-size: 12px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        font-weight: 700;
+      }
+
+      .metric-value {
+        margin-top: 12px;
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 52px;
+        font-weight: 700;
+        letter-spacing: -0.05em;
+      }
+
+      .metric-foot {
+        margin-top: 10px;
+        color: #bdd1e9;
+        font-size: 15px;
+      }
+
+      .queries {
+        background: linear-gradient(180deg, rgba(15, 24, 40, 0.95), rgba(8, 13, 23, 0.95));
+        border: 1px solid var(--border);
+        border-radius: 32px;
+        padding: 28px 28px 20px;
+        margin-bottom: 34px;
+      }
+
+      .section-head {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 22px;
+      }
+
+      .section-tag {
+        color: #9cc9ff;
+        font-size: 12px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        font-weight: 800;
+      }
+
+      .section-title {
+        margin-top: 8px;
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 34px;
+        font-weight: 700;
+        letter-spacing: -0.04em;
+      }
+
+      .section-sub {
+        color: #c6d7ea;
+        font-size: 16px;
+        line-height: 1.6;
+        max-width: 760px;
+      }
+
+      .query-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 12px;
+      }
+
+      .query-item {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        background: rgba(255, 255, 255, 0.03);
+        border-radius: 18px;
+        padding: 14px 16px;
+      }
+
+      .query-text {
+        color: #eef6ff;
+        font-size: 14px;
+        line-height: 1.45;
+        padding-right: 8px;
+      }
+
+      .query-count {
+        white-space: nowrap;
+        border-radius: 999px;
+        padding: 8px 12px;
+        background: rgba(0, 255, 136, 0.1);
+        color: #c2ffe3;
+        border: 1px solid rgba(0, 255, 136, 0.18);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .story-section {
+        background: var(--panel-strong);
+        border: 1px solid var(--border);
+        border-radius: 34px;
+        padding: 34px 32px 32px;
+        margin-bottom: 28px;
+        box-shadow:
+          inset 0 1px 0 rgba(255, 255, 255, 0.04),
+          0 16px 60px rgba(0, 0, 0, 0.28);
+      }
+
+      .story-header {
+        margin-bottom: 24px;
+      }
+
+      .story-kicker {
+        color: #8dd5ff;
+        font-size: 12px;
+        letter-spacing: 0.2em;
+        text-transform: uppercase;
+        font-weight: 800;
+      }
+
+      .story-title {
+        margin-top: 8px;
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 42px;
+        line-height: 1.02;
+        letter-spacing: -0.05em;
+        max-width: 1100px;
+      }
+
+      .story-blurb {
+        margin-top: 14px;
+        max-width: 920px;
+        color: #c8d7eb;
+        font-size: 18px;
+        line-height: 1.65;
+      }
+
+      .step-grid {
+        display: grid;
+        grid-template-columns: repeat(5, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .step {
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 24px;
+        padding: 22px 18px 20px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .step-num {
+        font-family: "Space Grotesk", sans-serif;
+        color: var(--gold);
+        font-size: 18px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+      }
+
+      .step h3 {
+        margin: 14px 0 10px;
+        font-size: 21px;
+        line-height: 1.18;
+      }
+
+      .step p {
+        margin: 0;
+        color: #c5d7ea;
+        font-size: 15px;
+        line-height: 1.65;
+      }
+
+      .highlight {
+        color: #d8fff0;
+        font-weight: 700;
+      }
+
+      .insight-grid {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .insight {
+        padding: 24px 20px;
+        border-radius: 24px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.02));
+        border: 1px solid rgba(255, 255, 255, 0.07);
+      }
+
+      .insight .stat {
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 42px;
+        font-weight: 700;
+        letter-spacing: -0.05em;
+        color: #fbfeff;
+      }
+
+      .insight .label {
+        margin-top: 10px;
+        color: #eaf4ff;
+        font-size: 20px;
+        font-weight: 700;
+        line-height: 1.22;
+      }
+
+      .insight p {
+        margin: 12px 0 0;
+        color: #c0d2e6;
+        font-size: 15px;
+        line-height: 1.65;
+      }
+
+      .market-grid {
+        display: grid;
+        grid-template-columns: 1.15fr 0.85fr;
+        gap: 18px;
+      }
+
+      .market-panel,
+      .audience-panel {
+        border: 1px solid rgba(255, 255, 255, 0.07);
+        border-radius: 26px;
+        padding: 24px 24px 22px;
+        background: rgba(255, 255, 255, 0.03);
+      }
+
+      .panel-title {
+        font-size: 14px;
+        letter-spacing: 0.18em;
+        text-transform: uppercase;
+        color: #94c7ff;
+        font-weight: 800;
+      }
+
+      .tam-stack {
+        display: grid;
+        gap: 14px;
+        margin-top: 18px;
+      }
+
+      .tam-row {
+        display: grid;
+        grid-template-columns: 160px 1fr;
+        gap: 18px;
+        align-items: start;
+        padding: 16px 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.07);
+      }
+
+      .tam-row:first-child {
+        border-top: 0;
+        padding-top: 0;
+      }
+
+      .tam-num {
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 32px;
+        line-height: 1;
+        letter-spacing: -0.05em;
+        color: #ffffff;
+      }
+
+      .tam-copy strong {
+        display: block;
+        font-size: 18px;
+        margin-bottom: 8px;
+      }
+
+      .tam-copy p {
+        margin: 0;
+        color: #c6d8ea;
+        font-size: 15px;
+        line-height: 1.65;
+      }
+
+      .audience-list {
+        margin: 18px 0 0;
+        padding: 0;
+        list-style: none;
+        display: grid;
+        gap: 14px;
+      }
+
+      .audience-list li {
+        padding: 14px 14px 14px 18px;
+        background: rgba(255, 255, 255, 0.025);
+        border: 1px solid rgba(255, 255, 255, 0.06);
+        border-radius: 18px;
+      }
+
+      .audience-list strong {
+        display: block;
+        font-size: 16px;
+        margin-bottom: 6px;
+        color: #ebf6ff;
+      }
+
+      .audience-list span {
+        color: #c2d3e7;
+        font-size: 14px;
+        line-height: 1.55;
+      }
+
+      .sources {
+        margin-top: 16px;
+        color: #95a5bd;
+        font-size: 12px;
+        line-height: 1.6;
+      }
+
+      .footer-strip {
+        margin-top: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+        padding: 22px 26px;
+        border-radius: 24px;
+        border: 1px solid rgba(0, 255, 136, 0.18);
+        background: linear-gradient(90deg, rgba(0, 255, 136, 0.08), rgba(0, 184, 255, 0.08));
+      }
+
+      .footer-strip strong {
+        font-size: 22px;
+        line-height: 1.25;
+      }
+
+      .footer-strip span {
+        color: #cfe5fb;
+        font-size: 15px;
+      }
+
+      .how-big-section {
+        background: transparent;
+        border: none;
+        border-radius: 0;
+        box-shadow: none;
+        padding: 8px 0 0;
+        margin-bottom: 30px;
+      }
+
+      .how-big-header {
+        margin-bottom: 26px;
+      }
+
+      .how-big-title {
+        margin: 8px 0 10px;
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 72px;
+        line-height: 0.96;
+        letter-spacing: -0.06em;
+        max-width: 900px;
+      }
+
+      .how-big-subtitle {
+        max-width: 920px;
+        color: #95a5bd;
+        font-size: 20px;
+        line-height: 1.55;
+      }
+
+      .how-big-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 30px;
+        margin-bottom: 28px;
+      }
+
+      .how-big-card {
+        min-height: 260px;
+        padding: 14px 20px 20px;
+        background: linear-gradient(180deg, rgba(16, 24, 40, 0.95), rgba(12, 18, 31, 0.96));
+        border: 1px solid rgba(98, 130, 170, 0.16);
+        border-top: 8px solid var(--mint);
+        border-radius: 0;
+        box-shadow: none;
+      }
+
+      .how-big-card-label {
+        color: #f8fbff;
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 30px;
+        font-weight: 700;
+        letter-spacing: -0.04em;
+        line-height: 1;
+        margin-bottom: 8px;
+      }
+
+      .how-big-card-sub {
+        color: #8c97a8;
+        font-size: 14px;
+        line-height: 1.35;
+      }
+
+      .how-big-card-value {
+        margin-top: 30px;
+        color: var(--mint);
+        font-family: "Space Grotesk", sans-serif;
+        font-size: 58px;
+        font-weight: 700;
+        letter-spacing: -0.06em;
+        line-height: 1;
+      }
+
+      .how-big-card-copy {
+        margin: 50px 0 0;
+        max-width: 92%;
+        color: #8e98ab;
+        font-size: 15px;
+        line-height: 1.45;
+      }
+
+      .demographics-title {
+        margin: 16px 0 14px;
+        color: #ffffff;
+        font-size: 24px;
+        line-height: 1.15;
+        font-weight: 800;
+      }
+
+      .demographics-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 18px 34px;
+      }
+
+      .demographic-card {
+        display: flex;
+        align-items: flex-start;
+        gap: 18px;
+        min-height: 112px;
+        padding: 16px 18px;
+        background: linear-gradient(180deg, rgba(14, 22, 35, 0.95), rgba(10, 16, 27, 0.95));
+        border: 1px solid rgba(74, 110, 143, 0.22);
+      }
+
+      .demo-icon {
+        flex: 0 0 auto;
+        width: 48px;
+        height: 48px;
+        color: var(--mint);
+        display: grid;
+        place-items: center;
+        margin-top: 4px;
+      }
+
+      .demo-icon svg {
+        width: 38px;
+        height: 38px;
+        display: block;
+      }
+
+      .demographic-copy h3 {
+        margin: 2px 0 10px;
+        font-size: 17px;
+        line-height: 1.25;
+        color: #f8fbff;
+      }
+
+      .demographic-copy p {
+        margin: 0;
+        color: #96a3b6;
+        font-size: 14px;
+        line-height: 1.55;
+        max-width: 520px;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="deck">
+      <div class="topbar">
+        <div class="brand">
+          <div class="brand-bolt">⚡</div>
+          <div>
+            <div class="brand-name">PriceHunter</div>
+            <div class="brand-tagline">Online + Offline. Every price. One search.</div>
+          </div>
+        </div>
+        <div class="nav">
+          <div class="nav-pill">01 It clearly works</div>
+          <div class="nav-pill">02 What</div>
+          <div class="nav-pill">03 Why</div>
+          <div class="nav-pill">04 How Big?</div>
+        </div>
+      </div>
+
+      <section class="hero">
+        <div class="hero-copy">
+          <div class="eyebrow">Live traction</div>
+          <h1>It clearly works</h1>
+          <p class="lead">
+            Real users are searching, saving money, and paying for PriceHunter. The product already proves the core
+            behaviour: people want one AI layer that checks online listings, calls local shops, negotiates for them,
+            and returns the final answer.
+          </p>
+          <div class="hero-note">
+            <strong>Core loop:</strong>
+            search request, AI comparison, voice agent calls local shops, negotiated final pricing, ranked answer
+          </div>
+        </div>
+
+        <aside class="hero-aside">
+          <div class="aside-kicker">What makes this defensible</div>
+          <div class="aside-title">The voice agent does what marketplaces never do.</div>
+          <ul class="aside-points">
+            <li>It searches Amazon, Flipkart, Croma, Blinkit, and other online platforms instantly.</li>
+            <li>It finds nearby offline vendors that are invisible in normal shopping journeys.</li>
+            <li>It calls local shops based on user preference, asks for live pricing, negotiates, and returns the final number.</li>
+            <li>It ranks one answer across online and offline instead of forcing users to compare everything manually.</li>
+          </ul>
+        </aside>
+      </section>
+
+      <section class="metrics-grid">
+        <div class="metric">
+          <div class="metric-label">Total searches</div>
+          <div class="metric-value">104</div>
+          <div class="metric-foot">People are already using the product across electronics, groceries, accessories, and services.</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Savings made</div>
+          <div class="metric-value">₹43,14,229</div>
+          <div class="metric-foot">The product story is not just convenience. It is money saved in categories where users already compare hard.</div>
+        </div>
+        <div class="metric">
+          <div class="metric-label">Paid subscriptions</div>
+          <div class="metric-value">6</div>
+          <div class="metric-foot">Users are willing to pay to keep getting the best final price instead of searching app by app.</div>
+        </div>
+      </section>
+
+      <section class="queries">
+        <div class="section-head">
+          <div>
+            <div class="section-tag">What users are searching</div>
+            <div class="section-title">41 live queries across categories</div>
+          </div>
+          <div class="section-sub">Searches already span electronics, groceries, personal care, clothing, accessories, and local services.</div>
+        </div>
+        <div class="query-grid">
+          <div class="query-item"><div class="query-text">cheapest iPhone 15 in Bangalore</div><div class="query-count">28 searches</div></div>
+          <div class="query-item"><div class="query-text">cheapest iPhone 15</div><div class="query-count">10 searches</div></div>
+          <div class="query-item"><div class="query-text">laptop under 50000 in Mumbai</div><div class="query-count">5 searches</div></div>
+          <div class="query-item"><div class="query-text">cheapest laptop in Delhi</div><div class="query-count">5 searches</div></div>
+          <div class="query-item"><div class="query-text">tomatoes near Rajkot</div><div class="query-count">5 searches</div></div>
+          <div class="query-item"><div class="query-text">cheapest modular kitchen hardware in Surat</div><div class="query-count">3 searches</div></div>
+          <div class="query-item"><div class="query-text">nearest pharmacy in Delhi</div><div class="query-count">3 searches</div></div>
+          <div class="query-item"><div class="query-text">fastest delivery for laptop</div><div class="query-count">2 searches</div></div>
+          <div class="query-item"><div class="query-text">cheapest one plus tv bangalore</div><div class="query-count">2 searches</div></div>
+          <div class="query-item"><div class="query-text">iPhone 15 in Koramangala</div><div class="query-count">2 searches</div></div>
+          <div class="query-item"><div class="query-text">cheapest iPhone 15 128GB in Bangalore</div><div class="query-count">2 searches</div></div>
+          <div class="query-item"><div class="query-text">cheapest nike shoes</div><div class="query-count">2 searches</div></div>
+          <div class="query-item"><div class="query-text">cheapest iPhone 15 in Mumbai</div><div class="query-count">2 searches</div></div>
+          <div class="query-item"><div class="query-text">fastest delivery for AirPods Pro in Mumbai</div><div class="query-count">2 searches</div></div>
+          <div class="query-item"><div class="query-text">gold necklace and earring set 20 grams 22 kt ahmedabad</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">repair and servicing</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">cheapest sanitary pads XL pack in Mumbai</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">best value intimate wash for women in Bangalore</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">cheapest silver oxidised jhumka earrings in Jaipur</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">fastest delivery for women’s oversized white shirt in Chennai</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">fastest delivery for boAt Airdopes 141 in Pune</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">find cheapest iPhone 15 in Bangalore Koramangala</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">cheapest condoms pack of 10 in Delhi</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">cheapest AC repair service in Gurgaon</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">cheapest almonds 500g in Delhi</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">Samsung Galaxy S24 Ultra in Mumbai</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">cheapest laptop in Chennai</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">best value men’s slim fit black jeans size 32 in Pune</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">55 inch LG smart TV in Ahmedabad</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">cheapest ceramic mugs in koramangala</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">fastest delivery for pregnancy test kit in Gurgaon</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">cheapest tomatoes in Rajkot</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">milk in Andheri</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">HP Pavilion i5 laptop in Hyderabad</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">cheapest satin nightwear set in Mumbai</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">cheapest tomatoes 1kg near Rajkot</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">cheapest price</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">Delhi</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">mumbai</div><div class="query-count">1 search</div></div>
+          <div class="query-item"><div class="query-text">tomatoes</div><div class="query-count">1 search</div></div>
+        </div>
+      </section>
+
+      <section class="story-section">
+        <div class="story-header">
+          <div class="story-kicker">What</div>
+          <div class="story-title">An AI that searches Amazon, Flipkart AND calls local shops near you to find the actual cheapest price.</div>
+          <div class="story-blurb">
+            PriceHunter is not just another comparison layer. It combines online marketplace search with a voice agent that calls local shops, negotiates for the user, and returns the final ranked answer.
+          </div>
+        </div>
+        <div class="step-grid">
+          <div class="step">
+            <div class="step-num">01</div>
+            <h3>You ask like a human</h3>
+            <p><span class="highlight">“Cheapest iPhone 15 near Koramangala”</span> and that is enough. Just type what you want. No filters, no categories, no browsing.</p>
+          </div>
+          <div class="step">
+            <div class="step-num">02</div>
+            <h3>AI understands everything</h3>
+            <p>Product, location, budget intent are parsed instantly. It knows whether you want the cheapest, closest, or fastest option.</p>
+          </div>
+          <div class="step">
+            <div class="step-num">03</div>
+            <h3>Online prices searched</h3>
+            <p>Amazon, Flipkart, Croma, Blinkit, BigBasket and other relevant platforms are queried simultaneously in seconds.</p>
+          </div>
+          <div class="step">
+            <div class="step-num">04</div>
+            <h3>Local shops called by AI</h3>
+            <p>This is the part no one else does. An AI voice agent phones nearby vendors, asks for live price, negotiates a discount, and speaks in Hindi or English.</p>
+          </div>
+          <div class="step">
+            <div class="step-num">05</div>
+            <h3>One ranked answer</h3>
+            <p>Online and offline results are scored by price, delivery, and availability. The best deal wins whether it is Amazon or the shop around the corner.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="story-section">
+        <div class="story-header">
+          <div class="story-kicker">Why</div>
+          <div class="story-title">You’re overpaying because half the market is invisible.</div>
+          <div class="story-blurb">
+            Shopping feels digital, but the real cheapest price is often not on an app. Users compare marketplaces manually, while local stores remain undiscovered even when they can beat e commerce prices.
+          </div>
+        </div>
+        <div class="insight-grid">
+          <div class="insight">
+            <div class="stat">5+</div>
+            <div class="label">apps before one purchase</div>
+            <p>You open Amazon, Flipkart, Croma, BigBasket, compare, screenshot, switch. It takes 20 minutes and you still do not know the real cheapest option.</p>
+          </div>
+          <div class="insight">
+            <div class="stat">67%</div>
+            <div class="label">of Indian retail is offline</div>
+            <p>Your neighborhood store probably has it cheaper. But they do not have a website, an app, or a listing anywhere. So you never find them until now.</p>
+          </div>
+          <div class="insight">
+            <div class="stat">15 to 30%</div>
+            <div class="label">cheaper at local stores</div>
+            <p>On electronics, groceries, and medicine, local vendors consistently undercut e commerce. Without a tool to surface them, buyers keep paying MRP.</p>
+          </div>
+          <div class="insight">
+            <div class="stat">1</div>
+            <div class="label">search was all that was missing</div>
+            <p>No product has combined online platforms and real phone calls to nearby shops in one search. PriceHunter is the first one to bridge both worlds.</p>
+          </div>
+        </div>
+      </section>
+
+      <section class="how-big-section">
+        <div class="how-big-header">
+          <div class="story-kicker">How Big?</div>
+          <div class="how-big-title">The Indian shopping market is massive, fragmented, and ripe for disruption.</div>
+          <div class="how-big-subtitle">
+            The Indian shopping market is massive, fragmented, and ripe for disruption.
+          </div>
+        </div>
+
+        <div class="how-big-grid">
+          <div class="how-big-card">
+            <div class="how-big-card-label">TAM</div>
+            <div class="how-big-card-sub">Total Addressable Market</div>
+            <div class="how-big-card-value">$850B+</div>
+            <p class="how-big-card-copy">India's total retail market. 67% offline, 33% online and growing 18% YoY.</p>
+          </div>
+          <div class="how-big-card">
+            <div class="how-big-card-label">SAM</div>
+            <div class="how-big-card-sub">Serviceable Addressable Market</div>
+            <div class="how-big-card-value">$120B+</div>
+            <p class="how-big-card-copy">Price-sensitive online shoppers plus local commerce in Tier 1 and Tier 2 cities.</p>
+          </div>
+          <div class="how-big-card">
+            <div class="how-big-card-label">SOM</div>
+            <div class="how-big-card-sub">Serviceable Obtainable Market</div>
+            <div class="how-big-card-value">$1.2B+</div>
+            <p class="how-big-card-copy">AI-assisted price comparison subscribers across metro and semi-urban India.</p>
+          </div>
+        </div>
+
+        <div class="demographics-title">Target Demographics</div>
+        <div class="demographics-grid">
+          <div class="demographic-card">
+            <div class="demo-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="7" y="2.5" width="10" height="19" rx="2.2"></rect>
+                <path d="M11.5 18.5h1"></path>
+              </svg>
+            </div>
+            <div class="demographic-copy">
+              <h3>Urban Millennials (22-38)</h3>
+              <p>Heavy online shoppers who switch between 5+ apps. Time-poor, value-conscious.</p>
+            </div>
+          </div>
+
+          <div class="demographic-card">
+            <div class="demo-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="10.5" cy="10.5" r="6.5"></circle>
+                <path d="M15.5 15.5L21 21"></path>
+              </svg>
+            </div>
+            <div class="demographic-copy">
+              <h3>Grocery and Daily Essentials Buyers</h3>
+              <p>Price-sensitive repeat buyers. High frequency, high retention potential.</p>
+            </div>
+          </div>
+
+          <div class="demographic-card">
+            <div class="demo-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 10h18"></path>
+                <path d="M5 10v10h14V10"></path>
+                <path d="M4 10l2.2-4.5h11.6L20 10"></path>
+                <path d="M8 14h8"></path>
+              </svg>
+            </div>
+            <div class="demographic-copy">
+              <h3>Semi-Urban Families</h3>
+              <p>Trust local stores but lack visibility online. Want best of both worlds.</p>
+            </div>
+          </div>
+
+          <div class="demographic-card">
+            <div class="demo-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 20h16"></path>
+                <path d="M7 20V9"></path>
+                <path d="M12 20V5"></path>
+                <path d="M17 20v-8"></path>
+              </svg>
+            </div>
+            <div class="demographic-copy">
+              <h3>Electronics and Gadget Shoppers</h3>
+              <p>Research-heavy buyers. Will pay for a tool that finds real off-market deals.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="footer-strip">
+        <div>
+          <strong>The core insight is simple.</strong>
+          <span>Search engines index online inventory. PriceHunter also calls the invisible half of the market, negotiates, and returns the final pricing.</span>
+        </div>
+        <div class="eyebrow">Ready for demo</div>
+      </section>
+    </main>
+  </body>
+</html>

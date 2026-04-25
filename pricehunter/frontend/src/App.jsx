@@ -8,6 +8,19 @@ import LocationPrompt from './components/LocationPrompt'
 import SearchProgressPanel from './components/SearchProgressPanel'
 
 const LOCATION_STORAGE_KEY = 'pricehunter-location'
+const DEVICE_ID_STORAGE_KEY = 'pricehunter-device-id'
+
+function getOrCreateDeviceId() {
+  const existing = window.localStorage.getItem(DEVICE_ID_STORAGE_KEY)
+  if (existing) {
+    return existing
+  }
+  const generated =
+    window.crypto?.randomUUID?.() ||
+    `device-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
+  window.localStorage.setItem(DEVICE_ID_STORAGE_KEY, generated)
+  return generated
+}
 
 const initialMessages = [
   {
@@ -200,7 +213,10 @@ function App() {
     try {
       const response = await fetch(`${apiBaseUrl}/api/chat/message`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Device-Id': getOrCreateDeviceId(),
+        },
         body: JSON.stringify({
           message: trimmed,
           session_id: state.sessionId || undefined,

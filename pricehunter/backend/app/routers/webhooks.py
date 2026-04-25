@@ -4,7 +4,7 @@ import logging
 
 from fastapi import APIRouter, Request
 
-from app.database import results_collection
+from app.services import persistence
 from app.services.voice_agent import store_execution_webhook
 
 logger = logging.getLogger(__name__)
@@ -20,7 +20,7 @@ async def voice_webhook(request: Request) -> dict[str, str]:
     execution_id = store_execution_webhook(body)
     logger.info("Received Bolna webhook payload for execution=%s.", execution_id or "unknown")
     try:
-        await results_collection.insert_one({"type": "voice_webhook", "payload": body})
+        await persistence.record_raw_webhook(execution_id, body)
     except Exception as exc:  # pragma: no cover - depends on external service
         logger.warning("Failed to persist webhook payload: %s", exc)
     return {"status": "received"}

@@ -321,6 +321,7 @@ async def process_message(
     message: str,
     session_id: str | None = None,
     location: str | None = None,
+    request_metadata: dict | None = None,
 ) -> ChatMessageResponse:
     state = _get_session(session_id)
     user_message = _normalize_whitespace(message)
@@ -355,6 +356,8 @@ async def process_message(
         progress = await search_progress.start_search(
             structured_query,
             search_strategy=state.search_strategy,
+            request_metadata=request_metadata,
+            session_id=state.session_id,
         )
     except orchestrator.UnsupportedCategoryError:
         return _unsupported_category_response(state)

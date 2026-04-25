@@ -6,7 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
-from app.database import ping_database
+from app.database import init_database, ping_database
 from app.routers import chat, location, search, webhooks
 
 logging.basicConfig(
@@ -48,6 +48,7 @@ async def startup_event() -> None:
         settings.mock_voice_calls,
     )
     await ping_database()
+    await init_database()
 
 
 @app.get("/health")
