@@ -18,8 +18,7 @@ from app.models.schemas import (
 )
 from app.services import comparator, orchestrator, persistence, query_structurer
 from app.services.flash_compare import flash_platform_strategy, search_flash_compare
-from app.services.online_discovery import PlatformStrategy, discover_platforms
-from app.services.platform_adapters import get_adapters
+from app.services.online_discovery import PlatformStrategy
 from app.services.vendor_discovery import discover_vendors
 from app.services.voice_agent import call_vendor, poll_call_result
 from app.services.voice_extractor import extract_from_call_result
@@ -92,19 +91,6 @@ def _update_partial_results(
     _touch(snapshot)
 
 
-def _apply_online_strategy_name(result: UnifiedResult, strategy: PlatformStrategy) -> UnifiedResult:
-    if result.is_mock:
-        result.name = strategy.platform_name
-        return result
-    if not result.name:
-        result.name = strategy.platform_name
-    if result.notes and strategy.platform_name.lower() not in result.notes.lower():
-        result.notes = f"{result.notes} | Requested via {strategy.platform_name}"
-    elif not result.notes:
-        result.notes = f"Requested via {strategy.platform_name}"
-    return result
-
-
 def _build_steps(
     query: StructuredQuery,
     search_strategy: SearchStrategy,
@@ -143,20 +129,13 @@ def _build_steps(
         steps.append(
             SearchProgressStep(
                 id="online-discovery",
-                label=f"Checking {len(platforms)} online platforms",
+                label="Checking online prices",
                 status="completed",
-                detail="Platform plan ready.",
+                detail="Flash Compare selected as the active online provider."
+                if settings.flash_compare_enabled
+                else "No online price provider is enabled.",
             )
         )
-        for strategy in platforms:
-            steps.append(
-                SearchProgressStep(
-                    id=_step_id("online", strategy.platform_id),
-                    label=f"Fetching {strategy.platform_name}",
-                    status="pending",
-                    detail="Waiting to start fetch.",
-                )
-            )
         if settings.flash_compare_enabled:
             steps.append(
                 SearchProgressStep(
@@ -232,36 +211,6 @@ async def _resolve_vendor(
         return []
 
 
-async def _resolve_online_platform(
-    snapshot: SearchProgressSnapshot,
-    query: StructuredQuery,
-    strategy: PlatformStrategy,
-    adapter,
-) -> list[UnifiedResult]:
-    step_id = _step_id("online", strategy.platform_id)
-    _set_step(snapshot, step_id, "running", "Fetching online listings.")
-    try:
-        raw_results = await adapter.search(strategy.search_query, location=query.location)
-        results = [_apply_online_strategy_name(result, strategy) for result in raw_results]
-        await _persist_safely(
-            persistence.record_online_results(
-                search_id=snapshot.search_id,
-                query=query,
-                strategy=strategy,
-                results=results,
-            ),
-            f"online results {strategy.platform_id}",
-        )
-        _update_partial_results(snapshot, results, query.intent)
-        detail = f"{len(results)} listing(s) added." if results else "No usable listings found."
-        _set_step(snapshot, step_id, "completed", detail)
-        return results
-    except Exception as exc:  # pragma: no cover - external integrations
-        logger.warning("Online platform fetch failed for %s: %s", strategy.platform_id, exc)
-        _set_step(snapshot, step_id, "failed", "Could not fetch listings.")
-        return []
-
-
 async def _resolve_flash_compare(
     snapshot: SearchProgressSnapshot,
     query: StructuredQuery,
@@ -323,14 +272,8 @@ async def _run_background_search(
                 for vendor in vendors_to_contact
             )
 
-        if search_strategy in {"both", "online"} and platforms:
-            adapters = get_adapters([strategy.platform_id for strategy in platforms], query.category)
-            tasks.extend(
-                asyncio.create_task(_resolve_online_platform(snapshot, query, strategy, adapter))
-                for strategy, adapter in zip(platforms, adapters, strict=False)
-            )
-            if settings.flash_compare_enabled:
-                tasks.append(asyncio.create_task(_resolve_flash_compare(snapshot, query)))
+        if search_strategy in {"both", "online"} and settings.flash_compare_enabled:
+            tasks.append(asyncio.create_task(_resolve_flash_compare(snapshot, query)))
 
         completed = await asyncio.gather(*tasks, return_exceptions=True) if tasks else []
         all_results: list[UnifiedResult] = []
@@ -400,20 +343,14 @@ async def start_search(
         if search_strategy in {"both", "offline"}
         else asyncio.sleep(0, result=[])
     )
-    platform_task = (
-        discover_platforms(query)
-        if search_strategy in {"both", "online"}
-        else asyncio.sleep(0, result=[])
-    )
-
-    vendors, platforms = await asyncio.gather(vendor_task, platform_task)
+    vendors = await vendor_task
+    platforms: list[PlatformStrategy] = []
 
     snapshot = SearchProgressSnapshot(
         query=query,
         status="running",
         discovered_vendors=vendors,
         online_platforms=[
-            *[strategy.platform_name for strategy in platforms],
             *(["Flash Compare"] if search_strategy in {"both", "online"} and settings.flash_compare_enabled else []),
         ],
         steps=_build_steps(query, search_strategy, vendors, platforms),
