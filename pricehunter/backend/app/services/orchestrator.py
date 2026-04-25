@@ -16,6 +16,13 @@ class UnsupportedCategoryError(ValueError):
     """Raised when a query falls outside the currently supported categories."""
 
 
+async def _persist_safely(coroutine, context: str) -> None:
+    try:
+        await coroutine
+    except Exception as exc:  # pragma: no cover - depends on external service
+        logger.warning("Persistence skipped for %s: %s", context, exc)
+
+
 async def store_results(query: StructuredQuery, results: list[UnifiedResult]) -> None:
     logger.info("Legacy store_results called for product=%s with %s result(s)", query.product, len(results))
 
@@ -35,13 +42,16 @@ async def run_search_structured(
         structured_query.product,
         search_strategy,
     )
-    await persistence.initialize_search_session(
-        search_id=search_id,
-        query=structured_query,
-        search_strategy=search_strategy,
-        request_metadata=request_metadata,
-        session_id=session_id,
-        source_flow="api",
+    await _persist_safely(
+        persistence.initialize_search_session(
+            search_id=search_id,
+            query=structured_query,
+            search_strategy=search_strategy,
+            request_metadata=request_metadata,
+            session_id=session_id,
+            source_flow="api",
+        ),
+        f"search init {search_id}",
     )
 
     online_results: list[UnifiedResult] | Exception = []
@@ -69,12 +79,15 @@ async def run_search_structured(
     ranked_results = comparator.rank(all_results, structured_query.intent)
 
     total_time = time.time() - start_time
-    await persistence.complete_search_session(
-        search_id=search_id,
-        query=structured_query,
-        final_results=ranked_results,
-        status="completed",
-        total_time_seconds=round(total_time, 2),
+    await _persist_safely(
+        persistence.complete_search_session(
+            search_id=search_id,
+            query=structured_query,
+            final_results=ranked_results,
+            status="completed",
+            total_time_seconds=round(total_time, 2),
+        ),
+        f"search completion {search_id}",
     )
     logger.info(
         "Search complete: total=%s online=%s offline=%s in %.2fs",

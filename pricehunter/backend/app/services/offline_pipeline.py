@@ -13,6 +13,13 @@ from app.services.voice_extractor import extract_from_call_result
 logger = logging.getLogger(__name__)
 
 
+async def _persist_safely(coroutine, context: str) -> None:
+    try:
+        await coroutine
+    except Exception as exc:  # pragma: no cover - depends on external service
+        logger.warning("Persistence skipped for %s: %s", context, exc)
+
+
 async def _resolve_call(call: VoiceCallResult) -> VoiceCallResult:
     return await poll_call_result(call)
 
@@ -45,10 +52,13 @@ async def run(query: StructuredQuery, search_id: str | None = None) -> list[Unif
             logger.warning("Call resolution failed: %s", completed)
             continue
         if search_id:
-            await persistence.record_call_attempt(
-                search_id=search_id,
-                query=query,
-                call=completed,
+            await _persist_safely(
+                persistence.record_call_attempt(
+                    search_id=search_id,
+                    query=query,
+                    call=completed,
+                ),
+                f"call attempt {completed.call_id}",
             )
         if completed.status != "completed" or not completed.transcript:
             if not completed.extracted_data:
@@ -63,11 +73,14 @@ async def run(query: StructuredQuery, search_id: str | None = None) -> list[Unif
             logger.warning("Transcript extraction failed for call %s: %s", call.call_id, item)
             continue
         if search_id:
-            await persistence.record_call_attempt(
-                search_id=search_id,
-                query=query,
-                call=call,
-                extracted_result=item,
+            await _persist_safely(
+                persistence.record_call_attempt(
+                    search_id=search_id,
+                    query=query,
+                    call=call,
+                    extracted_result=item,
+                ),
+                f"call result {call.call_id}",
             )
         results.append(item)
 

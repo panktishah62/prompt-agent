@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 
+import certifi
 from motor.motor_asyncio import AsyncIOMotorClient
 from pymongo import ASCENDING
 
@@ -11,9 +12,12 @@ logger = logging.getLogger(__name__)
 
 client = AsyncIOMotorClient(
     settings.mongodb_url,
-    serverSelectionTimeoutMS=2000,
-    connectTimeoutMS=2000,
-    socketTimeoutMS=2000,
+    tls=True,
+    tlsCAFile=certifi.where(),
+    serverSelectionTimeoutMS=5000,
+    connectTimeoutMS=5000,
+    socketTimeoutMS=5000,
+    retryWrites=True,
 )
 db = client[settings.database_name]
 

@@ -11,6 +11,13 @@ from app.services.platform_adapters import get_adapters
 logger = logging.getLogger(__name__)
 
 
+async def _persist_safely(coroutine, context: str) -> None:
+    try:
+        await coroutine
+    except Exception as exc:  # pragma: no cover - depends on external service
+        logger.warning("Persistence skipped for %s: %s", context, exc)
+
+
 async def _run_adapter(
     adapter,
     strategy: PlatformStrategy,
@@ -63,11 +70,14 @@ async def run(query: StructuredQuery, search_id: str | None = None) -> list[Unif
             logger.warning("Adapter %s failed: %s", strategy.platform_id, result)
             continue
         if search_id:
-            await persistence.record_online_results(
-                search_id=search_id,
-                query=query,
-                strategy=strategy,
-                results=result,
+            await _persist_safely(
+                persistence.record_online_results(
+                    search_id=search_id,
+                    query=query,
+                    strategy=strategy,
+                    results=result,
+                ),
+                f"online results {strategy.platform_id}",
             )
         combined.extend(result)
 
