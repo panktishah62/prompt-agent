@@ -22,6 +22,8 @@ client = AsyncIOMotorClient(
 db = client[settings.database_name]
 
 search_sessions_collection = db["search_sessions"]
+chat_sessions_collection = db["chat_sessions"]
+chat_messages_collection = db["chat_messages"]
 call_attempts_collection = db["call_attempts"]
 online_results_collection = db["online_results"]
 vendor_profiles_collection = db["vendor_profiles"]
@@ -38,6 +40,13 @@ vendors_collection = vendor_profiles_collection
 
 async def init_database() -> None:
     try:
+        await chat_sessions_collection.create_index([("session_id", ASCENDING)], unique=True)
+        await chat_sessions_collection.create_index([("updated_at", ASCENDING)])
+        await chat_sessions_collection.create_index([("request_metadata.device_id", ASCENDING), ("updated_at", ASCENDING)])
+
+        await chat_messages_collection.create_index([("session_id", ASCENDING), ("created_at", ASCENDING)])
+        await chat_messages_collection.create_index([("message_id", ASCENDING)], unique=True)
+
         await search_sessions_collection.create_index([("search_id", ASCENDING)], unique=True)
         await search_sessions_collection.create_index([("created_at", ASCENDING)])
         await search_sessions_collection.create_index([("status", ASCENDING), ("created_at", ASCENDING)])

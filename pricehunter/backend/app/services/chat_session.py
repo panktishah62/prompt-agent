@@ -5,12 +5,15 @@ import re
 
 from app.models.schemas import (
     ChatField,
+    ChatHistoryMessageCreate,
+    ChatSessionDetail,
+    ChatSessionSummary,
     ChatMessageResponse,
     ConversationState,
     SearchStrategy,
     StructuredQuery,
 )
-from app.services import orchestrator, query_structurer, search_progress
+from app.services import orchestrator, persistence, query_structurer, search_progress
 
 logger = logging.getLogger(__name__)
 
@@ -41,9 +44,14 @@ SUPPORTED_CHAT_CATEGORIES = ("electronics", "medicine")
 URGENCY_OPTIONS = ["Immediate", "1-2 days", "10 days", "No rush"]
 
 
-def _get_session(session_id: str | None) -> ConversationState:
+async def _get_session(session_id: str | None) -> ConversationState:
     if session_id and session_id in _SESSIONS:
         return _SESSIONS[session_id]
+    if session_id:
+        persisted = await persistence.load_conversation_state(session_id)
+        if persisted is not None:
+            _SESSIONS[persisted.session_id] = persisted
+            return persisted
 
     state = ConversationState()
     _SESSIONS[state.session_id] = state
@@ -52,6 +60,45 @@ def _get_session(session_id: str | None) -> ConversationState:
 
 def _save_session(state: ConversationState) -> None:
     _SESSIONS[state.session_id] = state
+
+
+async def _persist_session_snapshot(
+    state: ConversationState,
+    *,
+    request_metadata: dict | None = None,
+    last_message: str | None = None,
+) -> None:
+    try:
+        await persistence.upsert_chat_session(
+            session_id=state.session_id,
+            state=state,
+            request_metadata=request_metadata,
+            last_message=last_message,
+        )
+    except Exception as exc:  # pragma: no cover - external persistence
+        logger.warning("Chat session persistence skipped for %s: %s", state.session_id, exc)
+
+
+async def _persist_chat_message(
+    session_id: str,
+    *,
+    message_id: str | None = None,
+    role: str,
+    content: str,
+    kind: str = "text",
+    payload: dict | None = None,
+) -> None:
+    try:
+        await persistence.append_chat_message(
+            session_id=session_id,
+            message_id=message_id,
+            role=role,
+            content=content,
+            kind=kind,
+            payload=payload,
+        )
+    except Exception as exc:  # pragma: no cover - external persistence
+        logger.warning("Chat message persistence skipped for %s: %s", session_id, exc)
 
 
 def _normalize_whitespace(value: str) -> str:
@@ -323,12 +370,15 @@ async def process_message(
     location: str | None = None,
     request_metadata: dict | None = None,
 ) -> ChatMessageResponse:
-    state = _get_session(session_id)
+    state = await _get_session(session_id)
     user_message = _normalize_whitespace(message)
     logger.info("Processing chat message for session=%s", state.session_id)
 
     if location:
         state.location = _normalize_whitespace(location)
+
+    await _persist_session_snapshot(state, request_metadata=request_metadata, last_message=user_message)
+    await _persist_chat_message(state.session_id, role="user", content=user_message)
 
     await _merge_message_into_state(state, user_message)
     if state.category and not query_structurer.is_supported_category(state.category):
@@ -338,6 +388,8 @@ async def process_message(
     if state.awaiting_field is not None:
         assistant_message = _question_for_state(state)
         _save_session(state)
+        await _persist_session_snapshot(state, request_metadata=request_metadata, last_message=assistant_message)
+        await _persist_chat_message(state.session_id, role="assistant", content=assistant_message)
         return ChatMessageResponse(
             session_id=state.session_id,
             assistant_message=assistant_message,
@@ -371,6 +423,8 @@ async def process_message(
     )
 
     _save_session(state)
+    await _persist_session_snapshot(state, request_metadata=request_metadata, last_message=assistant_message)
+    await _persist_chat_message(state.session_id, role="assistant", content=assistant_message)
     return ChatMessageResponse(
         session_id=state.session_id,
         assistant_message=assistant_message,
@@ -378,4 +432,27 @@ async def process_message(
         ready_to_search=True,
         suggested_replies=[],
         search_progress=progress,
+    )
+
+
+async def list_sessions(device_id: str | None) -> list[ChatSessionSummary]:
+    sessions = await persistence.list_chat_sessions(device_id)
+    return [ChatSessionSummary.model_validate(session) for session in sessions]
+
+
+async def get_session_detail(session_id: str) -> ChatSessionDetail | None:
+    detail = await persistence.get_chat_session_detail(session_id)
+    if detail is None:
+        return None
+    return ChatSessionDetail.model_validate(detail)
+
+
+async def persist_history_message(session_id: str, payload: ChatHistoryMessageCreate) -> None:
+    await _persist_chat_message(
+        session_id,
+        role=payload.role,
+        message_id=payload.message_id,
+        content=payload.content,
+        kind=payload.kind,
+        payload=payload.payload,
     )

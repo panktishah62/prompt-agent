@@ -1,11 +1,7 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from 'react'
-import Header from './components/Header'
-import LoadingState from './components/LoadingState'
-import ResultsList from './components/ResultsList'
 import ChatBubble from './components/ChatBubble'
-import ConversationSummary from './components/ConversationSummary'
 import LocationPrompt from './components/LocationPrompt'
-import SearchProgressPanel from './components/SearchProgressPanel'
+import SessionSidebar from './components/SessionSidebar'
 
 const LOCATION_STORAGE_KEY = 'pricehunter-location'
 const DEVICE_ID_STORAGE_KEY = 'pricehunter-device-id'
@@ -24,33 +20,64 @@ function getOrCreateDeviceId() {
 
 const initialMessages = [
   {
+    message_id: 'welcome',
     role: 'assistant',
+    kind: 'text',
+    created_at: new Date().toISOString(),
     content:
-      'Tell me what you want to find. I will lock in the exact product, urgency, intent, category, and location before I search.',
+      'Tell me what you want to find. I’ll handle the product details, search online and offline, and keep the full search conversation here.',
   },
 ]
 
 const initialState = {
   isLoading: false,
+  sessions: [],
+  sessionsLoading: true,
   sessionId: '',
   messages: initialMessages,
   suggestedReplies: ['iPhone 16 128GB in Rajkot', 'boat earphones', 'paracetamol tablets'],
-  data: null,
   searchProgress: null,
+  activeSearchId: '',
   error: '',
   conversationState: null,
 }
 
 function reducer(state, action) {
   switch (action.type) {
+    case 'SET_SESSIONS':
+      return {
+        ...state,
+        sessions: action.payload,
+        sessionsLoading: false,
+      }
+    case 'LOAD_SESSION':
+      return {
+        ...state,
+        isLoading: false,
+        error: '',
+        sessionId: action.payload.sessionId,
+        messages: action.payload.messages.length > 0 ? action.payload.messages : initialMessages,
+        conversationState: action.payload.conversationState,
+        suggestedReplies: [],
+        searchProgress: null,
+        activeSearchId: action.payload.activeSearchId || '',
+      }
     case 'SEND_START':
       return {
         ...state,
         isLoading: true,
         error: '',
-        data: null,
-        searchProgress: null,
-        messages: [...state.messages, { role: 'user', content: action.payload }],
+        searchProgress: state.searchProgress?.status === 'completed' ? null : state.searchProgress,
+        messages: [
+          ...state.messages,
+          {
+            message_id: `user-${Date.now()}`,
+            role: 'user',
+            kind: 'text',
+            content: action.payload,
+            created_at: new Date().toISOString(),
+          },
+        ],
       }
     case 'SEND_SUCCESS':
       return {
@@ -59,18 +86,32 @@ function reducer(state, action) {
         sessionId: action.payload.sessionId,
         suggestedReplies: action.payload.suggestedReplies,
         conversationState: action.payload.conversationState,
-        data: action.payload.results ?? action.payload.searchProgress?.final_results ?? state.data,
         searchProgress: action.payload.searchProgress ?? state.searchProgress,
+        activeSearchId: action.payload.searchProgress?.search_id || state.activeSearchId,
         messages: [
           ...state.messages,
-          { role: 'assistant', content: action.payload.assistantMessage },
+          {
+            message_id: `assistant-${Date.now()}`,
+            role: 'assistant',
+            kind: 'text',
+            content: action.payload.assistantMessage,
+            created_at: new Date().toISOString(),
+          },
         ],
       }
     case 'SEARCH_PROGRESS_UPDATE':
       return {
         ...state,
         searchProgress: action.payload,
-        data: action.payload.final_results ?? state.data,
+        activeSearchId: action.payload.search_id || state.activeSearchId,
+      }
+    case 'APPEND_MESSAGE':
+      if (state.messages.some((message) => message.message_id === action.payload.message_id)) {
+        return state
+      }
+      return {
+        ...state,
+        messages: [...state.messages, action.payload],
       }
     case 'SEND_ERROR':
       return {
@@ -81,6 +122,8 @@ function reducer(state, action) {
     case 'RESET_SESSION':
       return {
         ...initialState,
+        sessions: state.sessions,
+        sessionsLoading: state.sessionsLoading,
         messages: [...initialMessages],
       }
     default:
@@ -97,6 +140,12 @@ function App() {
   const [isResolvingLocation, setIsResolvingLocation] = useState(false)
   const [locationAnnouncementShown, setLocationAnnouncementShown] = useState(false)
   const messagesEndRef = useRef(null)
+  const progressTrackerRef = useRef({
+    searchId: '',
+    stepStates: {},
+    resultIds: new Set(),
+    finalMessageAdded: false,
+  })
 
   useEffect(() => {
     const savedLocation = window.localStorage.getItem(LOCATION_STORAGE_KEY)
@@ -108,17 +157,38 @@ function App() {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [state.messages, state.isLoading, state.searchProgress])
+  }, [state.messages, state.isLoading])
 
   const headline = useMemo(() => {
-    const product = state.conversationState?.product || state.data?.query?.product
-    return product ? `Find the best path for ${product}` : 'Chat once. Search smarter.'
-  }, [state.conversationState?.product, state.data?.query?.product])
+    const product = state.conversationState?.product
+    return product ? `Working on ${product}` : 'What can I help you find today?'
+  }, [state.conversationState?.product])
 
   const apiBaseUrl = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+  const deviceId = useMemo(() => getOrCreateDeviceId(), [])
+
+  const fetchSessions = async () => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/chat/sessions`, {
+        headers: { 'X-Device-Id': deviceId },
+      })
+      if (!response.ok) {
+        throw new Error('Failed to load chat sessions.')
+      }
+      const payload = await response.json()
+      dispatch({ type: 'SET_SESSIONS', payload })
+    } catch (error) {
+      console.error(error)
+      dispatch({ type: 'SET_SESSIONS', payload: [] })
+    }
+  }
 
   useEffect(() => {
-    const searchId = state.searchProgress?.search_id
+    fetchSessions()
+  }, [apiBaseUrl, deviceId])
+
+  useEffect(() => {
+    const searchId = state.activeSearchId
     const status = state.searchProgress?.status
 
     if (!searchId || status === 'completed' || status === 'failed') {
@@ -139,7 +209,105 @@ function App() {
     }, 2000)
 
     return () => window.clearInterval(intervalId)
-  }, [apiBaseUrl, state.searchProgress?.search_id, state.searchProgress?.status])
+  }, [apiBaseUrl, state.activeSearchId, state.searchProgress?.status])
+
+  const persistSyntheticMessage = async (sessionId, message) => {
+    if (!sessionId) {
+      return
+    }
+    try {
+      await fetch(`${apiBaseUrl}/api/chat/sessions/${sessionId}/messages`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message_id: message.message_id,
+          role: message.role,
+          content: message.content,
+          kind: message.kind,
+          payload: message.payload || null,
+        }),
+      })
+      fetchSessions()
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
+  useEffect(() => {
+    const progress = state.searchProgress
+    if (!progress || !state.sessionId) {
+      return
+    }
+
+    if (progressTrackerRef.current.searchId !== progress.search_id) {
+      progressTrackerRef.current = {
+        searchId: progress.search_id,
+        stepStates: Object.fromEntries(progress.steps.map((step) => [step.id, step.status])),
+        resultIds: new Set((progress.partial_results || []).map((result) => result.id)),
+        finalMessageAdded: Boolean(progress.final_results),
+      }
+      return
+    }
+
+    const tracker = progressTrackerRef.current
+    const nextMessages = []
+
+    for (const step of progress.steps) {
+      const previousStatus = tracker.stepStates[step.id]
+      if (step.status !== previousStatus && step.status !== 'pending') {
+        tracker.stepStates[step.id] = step.status
+        nextMessages.push({
+          message_id: `progress-${progress.search_id}-${step.id}-${step.status}`,
+          role: 'assistant',
+          kind: 'status',
+          content:
+            step.detail ||
+            (step.status === 'failed' ? `${step.label} hit a problem.` : `${step.label} ${step.status}.`),
+          created_at: new Date().toISOString(),
+        })
+      }
+    }
+
+    const newResults = (progress.partial_results || []).filter((result) => !tracker.resultIds.has(result.id))
+    if (newResults.length > 0) {
+      newResults.forEach((result) => tracker.resultIds.add(result.id))
+      nextMessages.push({
+        message_id: `partial-${progress.search_id}-${newResults.map((result) => result.id).join('-')}`,
+        role: 'assistant',
+        kind: 'status',
+        content: `I found ${newResults.length} more match${newResults.length > 1 ? 'es' : ''}: ${newResults
+          .map((result) => `${result.name}${result.price ? ` at INR ${Number(result.price).toLocaleString('en-IN')}` : ''}`)
+          .join(', ')}.`,
+        created_at: new Date().toISOString(),
+      })
+    }
+
+    if (progress.final_results && !tracker.finalMessageAdded) {
+      tracker.finalMessageAdded = true
+      nextMessages.push({
+        message_id: `final-${progress.search_id}`,
+        role: 'assistant',
+        kind: 'results',
+        content: `I’ve finished the search and ranked ${progress.final_results.results.length} results for you.`,
+        payload: progress.final_results,
+        created_at: new Date().toISOString(),
+      })
+    } else if (progress.status === 'failed' && !tracker.finalMessageAdded) {
+      tracker.finalMessageAdded = true
+      nextMessages.push({
+        message_id: `failed-${progress.search_id}`,
+        role: 'assistant',
+        kind: 'status',
+        content: progress.error || 'The search stopped before I could finish it.',
+        created_at: new Date().toISOString(),
+      })
+    }
+
+    nextMessages.forEach((message) => {
+      dispatch({ type: 'APPEND_MESSAGE', payload: message })
+      persistSyntheticMessage(state.sessionId, message)
+    })
+  }, [state.searchProgress, state.sessionId])
 
   const rememberLocation = (value) => {
     setLocation(value)
@@ -215,7 +383,7 @@ function App() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'X-Device-Id': getOrCreateDeviceId(),
+          'X-Device-Id': deviceId,
         },
         body: JSON.stringify({
           message: trimmed,
@@ -242,6 +410,7 @@ function App() {
         },
       })
       setLocationAnnouncementShown(true)
+      fetchSessions()
     } catch (error) {
       dispatch({
         type: 'SEND_ERROR',
@@ -260,8 +429,36 @@ function App() {
     handleSend(input)
   }
 
+  const handleOpenSession = async (sessionId) => {
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/chat/sessions/${sessionId}`)
+      if (!response.ok) {
+        throw new Error('Failed to load chat session.')
+      }
+      const payload = await response.json()
+      dispatch({
+        type: 'LOAD_SESSION',
+        payload: {
+          sessionId: payload.session_id,
+          messages: payload.messages,
+          conversationState: payload.state,
+          activeSearchId:
+            payload.latest_search && !['completed', 'failed'].includes(payload.latest_search.status)
+              ? payload.latest_search.search_id
+              : '',
+        },
+      })
+      if (payload.state?.location && payload.state.location !== 'unknown') {
+        setLocation(payload.state.location)
+      }
+      setLocationAnnouncementShown(true)
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
   return (
-    <div className="relative min-h-screen overflow-hidden bg-ink text-white">
+    <div className="min-h-screen bg-[#ecece6] text-slate-900">
       <LocationPrompt
         isOpen={isLocationPromptOpen}
         isResolving={isResolvingLocation}
@@ -271,153 +468,105 @@ function App() {
         onConfirmManual={handleConfirmManualLocation}
       />
 
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(0,255,136,0.2),transparent_32%),radial-gradient(circle_at_bottom_right,rgba(33,110,255,0.18),transparent_30%)]" />
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-[linear-gradient(180deg,rgba(255,255,255,0.05),transparent)]" />
+      <div className="grid min-h-screen lg:grid-cols-[320px_minmax(0,1fr)]">
+        <div className="min-h-screen">
+          <SessionSidebar
+            sessions={state.sessions}
+            activeSessionId={state.sessionId}
+            onNewChat={() => {
+              dispatch({ type: 'RESET_SESSION' })
+              setLocationAnnouncementShown(false)
+            }}
+            onSelectSession={handleOpenSession}
+            location={location}
+            onChangeLocation={() => setIsLocationPromptOpen(true)}
+          />
+        </div>
 
-      <Header />
-
-      <main className="relative mx-auto w-full max-w-7xl px-4 pb-16 pt-10 sm:px-6 lg:px-8">
-        <section className="mx-auto max-w-6xl text-center">
-          <p className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.35em] text-mint/80 shadow-soft">
-            Conversational Search Intake
-          </p>
-          <h1 className="mt-6 font-display text-5xl font-black tracking-tight text-white sm:text-6xl">
-            {headline}
-          </h1>
-          <p className="mx-auto mt-4 max-w-3xl text-base text-slate-300 sm:text-lg">
-            I&apos;ll ask just enough to make the search precise, then decide whether to search online, offline, or both.
-          </p>
-        </section>
-
-        <section className="mx-auto mt-6 max-w-6xl rounded-[1.6rem] border border-sky-400/20 bg-sky-400/10 px-4 py-4 shadow-soft backdrop-blur">
-          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <p className="text-xs uppercase tracking-[0.28em] text-sky-200">Search location</p>
-              <p className="mt-1 text-base text-white">
-                {location
-                  ? `I’ll use ${location} for this search, similar to a Swiggy-style location lock.`
-                  : 'Set your location before searching so I can search the right area.'}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsLocationPromptOpen(true)}
-              className="rounded-full border border-white/10 bg-white/5 px-4 py-2 text-xs uppercase tracking-[0.24em] text-slate-200 transition hover:border-mint/30 hover:text-white"
-            >
-              {location ? 'Change location' : 'Set location'}
-            </button>
+        <main className="flex min-h-screen flex-col bg-[#fcfcf9]">
+          <div className="border-b border-slate-200 px-6 py-5">
+            <p className="text-xs font-semibold uppercase tracking-[0.28em] text-slate-400">Chat</p>
+            <h2 className="mt-2 text-2xl font-semibold text-slate-900">{headline}</h2>
           </div>
-        </section>
 
-        <section className="mt-10 grid gap-6 xl:grid-cols-[0.92fr_1.08fr]">
-          <div className="rounded-[2rem] border border-white/10 bg-white/5 p-5 shadow-soft backdrop-blur">
-            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-mint/80">Assistant</p>
-                <h2 className="mt-2 font-display text-2xl font-black text-white">PriceHunter Chat</h2>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.24em] text-slate-300">
-                  Guided intake
-                </div>
-                <button
-                  type="button"
-                  onClick={() => dispatch({ type: 'RESET_SESSION' })}
-                  className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.24em] text-slate-300 transition hover:border-mint/30 hover:text-white"
-                >
-                  New search
-                </button>
-              </div>
-            </div>
-
-            <div className="mt-5 h-[28rem] space-y-4 overflow-y-auto pr-1">
-              {location && !locationAnnouncementShown && (
+          <div className="flex-1 overflow-y-auto px-6 py-8">
+            <div className="mx-auto w-full max-w-4xl space-y-5">
+              {location && !locationAnnouncementShown && state.messages.length === 1 ? (
                 <ChatBubble
-                  role="assistant"
-                  content={`I found your search location as ${location}. I’ll use that for the next search unless you change it.`}
+                  message={{
+                    message_id: 'location-intro',
+                    role: 'assistant',
+                    kind: 'status',
+                    content: `I’ll use ${location} for this conversation unless you change it.`,
+                  }}
                 />
-              )}
-              {state.messages.map((message, index) => (
-                <ChatBubble key={`${message.role}-${index}`} role={message.role} content={message.content} />
+              ) : null}
+
+              {state.messages.map((message) => (
+                <ChatBubble key={message.message_id} message={message} />
               ))}
-              {state.isLoading && (
+
+              {state.isLoading ? (
                 <ChatBubble
-                  role="assistant"
-                  content={`Working through that now. I’m confirming the search around ${location || 'your area'} before I continue.`}
+                  message={{
+                    message_id: 'loading-message',
+                    role: 'assistant',
+                    kind: 'status',
+                    content: `Working on that now${location ? ` for ${location}` : ''}.`,
+                  }}
                 />
-              )}
+              ) : null}
+
               <div ref={messagesEndRef} />
             </div>
-
-            {state.suggestedReplies.length > 0 && (
-              <div className="mt-5 flex flex-wrap gap-2">
-                {state.suggestedReplies.map((reply) => (
-                  <button
-                    key={reply}
-                    type="button"
-                    onClick={() => handleSend(reply)}
-                    disabled={state.isLoading}
-                    className="rounded-full border border-white/10 bg-white/5 px-3 py-2 text-sm text-slate-200 transition hover:border-mint/30 hover:bg-mint/10 disabled:cursor-not-allowed disabled:opacity-60"
-                  >
-                    {reply}
-                  </button>
-                ))}
-              </div>
-            )}
-
-            <form onSubmit={handleSubmit} className="mt-5 flex gap-3">
-              <input
-                value={input}
-                onChange={(event) => setInput(event.target.value)}
-                placeholder={location ? `Search in ${location}...` : 'Reply here...'}
-                className="w-full rounded-[1.4rem] border border-white/10 bg-ink-soft px-4 py-4 text-sm text-white outline-none transition focus:border-mint/60 focus:ring-2 focus:ring-mint/20"
-              />
-              <button
-                type="submit"
-                disabled={state.isLoading || !input.trim()}
-                className="rounded-[1.4rem] bg-[linear-gradient(135deg,#00ff88,#00b8ff)] px-5 py-4 font-display text-sm font-black uppercase tracking-[0.22em] text-ink transition hover:scale-[1.01] disabled:cursor-not-allowed disabled:opacity-60"
-              >
-                Send
-              </button>
-            </form>
-
-            {state.error && (
-              <div className="mt-4 rounded-2xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
-                {state.error}
-              </div>
-            )}
           </div>
 
-          <div className="space-y-6">
-            <ConversationSummary state={state.conversationState} />
-
-            {state.isLoading && !state.searchProgress && <LoadingState />}
-
-            {state.searchProgress && (
-              <SearchProgressPanel progress={state.searchProgress} />
-            )}
-
-            {!state.isLoading && state.data && <ResultsList data={state.data} />}
-
-            {!state.isLoading && !state.data && !state.searchProgress && (
-              <section className="rounded-[2rem] border border-white/10 bg-white/5 p-6 shadow-soft backdrop-blur">
-                <p className="text-xs uppercase tracking-[0.3em] text-mint/80">What happens next</p>
-                <div className="mt-4 grid gap-3 md:grid-cols-3">
-                  {[
-                    'I confirm the exact product so the search is specific enough to trust.',
-                    'I lock the location first, then search around that area consistently.',
-                    'Then I run online, offline, or both and rank the results together.',
-                  ].map((item) => (
-                    <div key={item} className="rounded-2xl border border-white/10 bg-white/[0.04] p-4 text-sm text-slate-200">
-                      {item}
-                    </div>
+          <div className="border-t border-slate-200 bg-[#fcfcf9] px-6 py-5">
+            <div className="mx-auto w-full max-w-4xl">
+              {state.suggestedReplies.length > 0 ? (
+                <div className="mb-4 flex flex-wrap gap-2">
+                  {state.suggestedReplies.map((reply) => (
+                    <button
+                      key={reply}
+                      type="button"
+                      onClick={() => handleSend(reply)}
+                      disabled={state.isLoading}
+                      className="rounded-full border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700 transition hover:border-slate-300 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {reply}
+                    </button>
                   ))}
                 </div>
-              </section>
-            )}
+              ) : null}
+
+              <form onSubmit={handleSubmit} className="rounded-[1.75rem] border border-slate-200 bg-white p-3 shadow-[0_16px_40px_rgba(15,23,42,0.06)]">
+                <div className="flex items-end gap-3">
+                  <textarea
+                    value={input}
+                    onChange={(event) => setInput(event.target.value)}
+                    rows={1}
+                    placeholder={location ? `Ask anything in ${location}` : 'Ask anything'}
+                    className="max-h-40 min-h-[48px] w-full resize-none border-0 bg-transparent px-3 py-2 text-base text-slate-900 outline-none placeholder:text-slate-400"
+                  />
+                  <button
+                    type="submit"
+                    disabled={state.isLoading || !input.trim()}
+                    className="rounded-2xl bg-slate-900 px-5 py-3 text-sm font-medium text-white transition hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    Send
+                  </button>
+                </div>
+              </form>
+
+              {state.error ? (
+                <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+                  {state.error}
+                </div>
+              ) : null}
+            </div>
           </div>
-        </section>
-      </main>
+        </main>
+      </div>
     </div>
   )
 }

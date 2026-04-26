@@ -7,7 +7,7 @@
 
 @layer base {
   :root {
-    color-scheme: dark;
+    color-scheme: light;
   }
 
   html {
@@ -15,11 +15,8 @@
   }
 
   body {
-    @apply m-0 bg-ink font-body text-white antialiased;
-    background-image:
-      linear-gradient(rgba(255, 255, 255, 0.03) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
-    background-size: 48px 48px;
+    @apply m-0 font-body text-slate-900 antialiased;
+    background: #ecece6;
   }
 
   * {
@@ -27,30 +24,15 @@
   }
 
   ::selection {
-    background: rgba(0, 255, 136, 0.35);
-    color: #f8fffc;
+    background: rgba(15, 23, 42, 0.15);
+    color: #0f172a;
   }
 }
 
 @layer components {
-  .loading-bar {
-    animation: shimmer 2.2s linear infinite;
-    background-size: 200% 100%;
-  }
-
   .result-card {
     animation: fadeUp 0.55s ease-out forwards;
     opacity: 0;
-  }
-}
-
-@keyframes shimmer {
-  0% {
-    background-position: 200% 0;
-  }
-
-  100% {
-    background-position: -200% 0;
   }
 }
 

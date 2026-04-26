@@ -5,9 +5,12 @@ import re
 from datetime import datetime, timedelta
 from typing import Any
 from urllib.parse import urlparse
+from uuid import uuid4
 
 from app.database import (
     call_attempts_collection,
+    chat_messages_collection,
+    chat_sessions_collection,
     online_results_collection,
     price_history_collection,
     product_catalog_collection,
@@ -16,7 +19,7 @@ from app.database import (
     vendor_product_observations_collection,
     vendor_profiles_collection,
 )
-from app.models.schemas import StructuredQuery, UnifiedResult, VendorInfo, VoiceCallResult
+from app.models.schemas import ChatHistoryMessage, ConversationState, StructuredQuery, UnifiedResult, VendorInfo, VoiceCallResult
 from app.services.online_discovery import PlatformStrategy
 
 logger = logging.getLogger(__name__)
@@ -351,6 +354,134 @@ async def record_raw_webhook(execution_id: str | None, payload: dict[str, Any]) 
             "received_at": _now(),
         }
     )
+
+
+def _session_title(state: ConversationState | None, fallback: str | None = None) -> str:
+    if state:
+        if state.product:
+            return state.product
+        if state.raw_query.strip():
+            return state.raw_query.strip()[:80]
+    if fallback:
+        return fallback.strip()[:80]
+    return "New chat"
+
+
+async def upsert_chat_session(
+    *,
+    session_id: str,
+    state: ConversationState,
+    request_metadata: dict[str, Any] | None = None,
+    last_message: str | None = None,
+    title: str | None = None,
+) -> None:
+    now = _now()
+    await chat_sessions_collection.update_one(
+        {"session_id": session_id},
+        {
+            "$set": {
+                "title": title or _session_title(state, last_message),
+                "state": state.model_dump(mode="json"),
+                "location": state.location,
+                "last_message": last_message,
+                "request_metadata": request_metadata or {},
+                "updated_at": now,
+            },
+            "$setOnInsert": {
+                "created_at": now,
+            },
+        },
+        upsert=True,
+    )
+
+
+async def append_chat_message(
+    *,
+    session_id: str,
+    message_id: str | None = None,
+    role: str,
+    content: str,
+    kind: str = "text",
+    payload: dict[str, Any] | None = None,
+) -> ChatHistoryMessage:
+    message = ChatHistoryMessage(
+        message_id=message_id or str(uuid4()),
+        role=role,  # type: ignore[arg-type]
+        content=content,
+        kind=kind,  # type: ignore[arg-type]
+        payload=payload,
+    )
+    await chat_messages_collection.update_one(
+        {"message_id": message.message_id},
+        {
+            "$setOnInsert": {
+                "message_id": message.message_id,
+                "session_id": session_id,
+                "role": message.role,
+                "content": message.content,
+                "kind": message.kind,
+                "payload": message.payload,
+                "created_at": message.created_at,
+            }
+        },
+        upsert=True,
+    )
+    await chat_sessions_collection.update_one(
+        {"session_id": session_id},
+        {
+            "$set": {
+                "last_message": content,
+                "updated_at": _now(),
+            }
+        },
+        upsert=True,
+    )
+    return message
+
+
+async def list_chat_sessions(device_id: str | None, limit: int = 30) -> list[dict[str, Any]]:
+    query: dict[str, Any] = {}
+    if device_id:
+        query["request_metadata.device_id"] = device_id
+    cursor = chat_sessions_collection.find(query).sort("updated_at", -1).limit(limit)
+    sessions = await cursor.to_list(length=limit)
+    for session in sessions:
+        session.pop("_id", None)
+    return sessions
+
+
+async def get_chat_session_detail(session_id: str) -> dict[str, Any] | None:
+    session = await chat_sessions_collection.find_one({"session_id": session_id})
+    if session is None:
+        return None
+    session.pop("_id", None)
+
+    messages_cursor = chat_messages_collection.find({"session_id": session_id}).sort("created_at", 1)
+    messages = await messages_cursor.to_list(length=500)
+    for message in messages:
+        message.pop("_id", None)
+
+    latest_search_cursor = search_sessions_collection.find({"session_id": session_id}).sort("updated_at", -1).limit(1)
+    latest_searches = await latest_search_cursor.to_list(length=1)
+    latest_search = latest_searches[0] if latest_searches else None
+    if latest_search:
+        latest_search.pop("_id", None)
+
+    return {
+        **session,
+        "messages": messages,
+        "latest_search": latest_search,
+    }
+
+
+async def load_conversation_state(session_id: str) -> ConversationState | None:
+    session = await chat_sessions_collection.find_one({"session_id": session_id})
+    if not session:
+        return None
+    state = session.get("state")
+    if not isinstance(state, dict):
+        return None
+    return ConversationState.model_validate(state)
 
 
 async def _record_observation(

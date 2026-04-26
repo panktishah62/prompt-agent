@@ -144,6 +144,41 @@ class ChatMessageRequest(BaseModel):
     location: Optional[str] = None
 
 
+class ChatHistoryMessage(BaseModel):
+    message_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    role: Literal["assistant", "user"]
+    content: str
+    kind: Literal["text", "status", "results"] = "text"
+    payload: Optional[dict] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class ChatSessionSummary(BaseModel):
+    session_id: str
+    title: str
+    last_message: Optional[str] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChatSessionDetail(BaseModel):
+    session_id: str
+    title: str
+    state: Optional[ConversationState] = None
+    messages: list[ChatHistoryMessage] = Field(default_factory=list)
+    latest_search: Optional[dict] = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class ChatHistoryMessageCreate(BaseModel):
+    message_id: Optional[str] = None
+    role: Literal["assistant", "user"]
+    content: str
+    kind: Literal["text", "status", "results"] = "text"
+    payload: Optional[dict] = None
+
+
 class ChatMessageResponse(BaseModel):
     """Assistant reply plus optional search results."""
 
