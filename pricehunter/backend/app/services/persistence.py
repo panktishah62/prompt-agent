@@ -92,7 +92,7 @@ async def upsert_product(product: str, category: str) -> dict[str, Any]:
         {"product_key": key},
         {
             "$set": doc,
-            "$setOnInsert": {"created_at": now, "aliases": [product]},
+            "$setOnInsert": {"created_at": now},
             "$addToSet": {"aliases": product},
         },
         upsert=True,
@@ -119,7 +119,6 @@ async def upsert_offline_vendor(vendor: VendorInfo, category: str | None = None)
     }
     set_on_insert = {
         "created_at": now,
-        "aliases": [vendor.name],
         "categories": [category] if category else [],
     }
     await vendor_profiles_collection.update_one(
@@ -157,7 +156,7 @@ async def upsert_online_vendor(result: UnifiedResult, platform_name: str, platfo
         {"vendor_key": vendor_key},
         {
             "$set": doc,
-            "$setOnInsert": {"created_at": now, "aliases": [result.name or platform_name]},
+            "$setOnInsert": {"created_at": now},
             "$addToSet": {"aliases": result.name or platform_name},
         },
         upsert=True,

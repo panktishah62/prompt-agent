@@ -404,6 +404,7 @@ async def process_message(
             ),
         )
 
+    state.intent = state.intent or "cheapest"
     state.search_strategy = _decide_search_strategy(state)
     structured_query = _build_structured_query(state)
     try:

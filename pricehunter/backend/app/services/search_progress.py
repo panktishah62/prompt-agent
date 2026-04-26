@@ -91,6 +91,19 @@ def _update_partial_results(
     _touch(snapshot)
 
 
+def _offline_failure_detail(vendor_name: str, exc: Exception) -> str:
+    message = str(exc)
+    lowered = message.lower()
+    if "domestic anchored terms not met" in lowered or "sip 403" in lowered:
+        return (
+            f"I reached {vendor_name}, but the calling provider blocked this local call route, "
+            "so I could not collect a quote."
+        )
+    if "service unavailable" in lowered or "sip 503" in lowered:
+        return f"I tried calling {vendor_name}, but the telephony route was temporarily unavailable."
+    return f"I could not reach {vendor_name} for a quote."
+
+
 def _build_steps(
     query: StructuredQuery,
     search_strategy: SearchStrategy,
@@ -207,7 +220,7 @@ async def _resolve_vendor(
         return [result]
     except Exception as exc:  # pragma: no cover - external integrations
         logger.warning("Offline vendor resolution failed for %s: %s", vendor.name, exc)
-        _set_step(snapshot, step_id, "failed", f"I could not reach {vendor.name} for a quote.")
+        _set_step(snapshot, step_id, "failed", _offline_failure_detail(vendor.name, exc))
         return []
 
 

@@ -320,6 +320,22 @@ function App() {
     }
   }
 
+  const fetchSearchSnapshot = async (searchId) => {
+    if (!searchId) {
+      return
+    }
+    try {
+      const response = await fetch(`${apiBaseUrl}/api/chat/search/${searchId}`)
+      if (!response.ok) {
+        throw new Error(`Search status failed with status ${response.status}`)
+      }
+      const payload = await response.json()
+      dispatch({ type: 'SEARCH_PROGRESS_UPDATE', payload })
+    } catch (error) {
+      console.error(error)
+    }
+  }
+
   useEffect(() => {
     const progress = state.searchProgress
     if (!progress || !state.sessionId) {
@@ -521,12 +537,12 @@ function App() {
           sessionId: payload.session_id,
           messages: payload.messages,
           conversationState: payload.state,
-          activeSearchId:
-            payload.latest_search && !['completed', 'failed'].includes(payload.latest_search.status)
-              ? payload.latest_search.search_id
-              : '',
+          activeSearchId: payload.latest_search?.search_id || '',
         },
       })
+      if (payload.latest_search?.search_id) {
+        fetchSearchSnapshot(payload.latest_search.search_id)
+      }
       if (payload.state?.location && payload.state.location !== 'unknown') {
         setLocation(payload.state.location)
       }
