@@ -9,7 +9,7 @@ from pydantic import BaseModel, Field
 UrgencyOption = Literal["immediate", "1-2 days", "10 days", "no rush"]
 SearchStrategy = Literal["online", "offline", "both"]
 ChatIntent = Literal["cheapest", "fastest", "best_value"]
-ChatField = Literal["product", "urgency", "intent", "category"]
+ChatField = Literal["product", "urgency", "intent", "category", "location"]
 ProgressStatus = Literal["pending", "running", "completed", "failed"]
 
 

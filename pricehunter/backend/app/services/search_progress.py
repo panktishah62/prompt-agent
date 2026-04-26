@@ -110,18 +110,18 @@ def _build_steps(
         steps.append(
             SearchProgressStep(
                 id="vendor-discovery",
-                label=f"Found {len(vendors)} nearby vendors",
+                label=f"Found {len(vendors)} nearby offline vendors",
                 status="completed",
-                detail="Vendor discovery complete.",
+                detail="Vendor shortlist is ready.",
             )
         )
         for vendor in vendors:
             steps.append(
                 SearchProgressStep(
                     id=_step_id("offline", vendor.name),
-                    label=f"Contacting {vendor.name}",
+                    label=f"Calling {vendor.name}",
                     status="pending",
-                    detail="Waiting to start call.",
+                    detail=f"Queued {vendor.name} for a price check.",
                 )
             )
 
@@ -129,9 +129,9 @@ def _build_steps(
         steps.append(
             SearchProgressStep(
                 id="online-discovery",
-                label="Checking online prices",
+                label="Preparing online price search",
                 status="completed",
-                detail="Flash Compare selected as the active online provider."
+                detail="Online marketplace search is ready to start."
                 if settings.flash_compare_enabled
                 else "No online price provider is enabled.",
             )
@@ -140,9 +140,9 @@ def _build_steps(
             steps.append(
                 SearchProgressStep(
                     id="online-flash-compare",
-                    label="Fetching Flash Compare",
+                    label="Searching online stores",
                     status="pending",
-                    detail="Waiting to start fetch.",
+                    detail="Queued for live online price collection.",
                 )
             )
     return steps
@@ -154,7 +154,7 @@ async def _resolve_vendor(
     vendor: VendorInfo,
 ) -> list[UnifiedResult]:
     step_id = _step_id("offline", vendor.name)
-    _set_step(snapshot, step_id, "running", "Calling vendor for live availability.")
+    _set_step(snapshot, step_id, "running", f"Calling {vendor.name} now for live pricing and availability.")
     try:
         call = await call_vendor(vendor, query.product)
         await _persist_safely(
@@ -200,14 +200,14 @@ async def _resolve_vendor(
             f"call result {completed.call_id}",
         )
         _update_partial_results(snapshot, [result], query.intent)
-        detail = "Quote captured."
+        detail = f"Received an availability update from {vendor.name}."
         if result.price is not None:
-            detail = f"Quote captured at INR {result.price:,.0f}."
+            detail = f"Received a quote from {vendor.name} at INR {result.price:,.0f}."
         _set_step(snapshot, step_id, "completed", detail)
         return [result]
     except Exception as exc:  # pragma: no cover - external integrations
         logger.warning("Offline vendor resolution failed for %s: %s", vendor.name, exc)
-        _set_step(snapshot, step_id, "failed", "Could not fetch vendor quote.")
+        _set_step(snapshot, step_id, "failed", f"I could not reach {vendor.name} for a quote.")
         return []
 
 
@@ -216,7 +216,7 @@ async def _resolve_flash_compare(
     query: StructuredQuery,
 ) -> list[UnifiedResult]:
     step_id = "online-flash-compare"
-    _set_step(snapshot, step_id, "running", "Fetching cross-store Flash prices.")
+    _set_step(snapshot, step_id, "running", "Searching major online stores and collecting direct product links.")
     try:
         results = await search_flash_compare(query)
         await _persist_safely(
@@ -229,12 +229,16 @@ async def _resolve_flash_compare(
             "flash compare results",
         )
         _update_partial_results(snapshot, results, query.intent)
-        detail = f"{len(results)} store price(s) added." if results else "No Flash compare prices found."
+        detail = (
+            f"Found {len(results)} live online price match{'es' if len(results) != 1 else ''}."
+            if results
+            else "No online prices were found from the marketplaces checked."
+        )
         _set_step(snapshot, step_id, "completed", detail)
         return results
     except Exception as exc:  # pragma: no cover - external integrations
         logger.warning("Flash compare fetch failed: %s", exc)
-        _set_step(snapshot, step_id, "failed", "Could not fetch Flash compare prices.")
+        _set_step(snapshot, step_id, "failed", "I could not finish the online marketplace search.")
         return []
 
 
@@ -351,7 +355,7 @@ async def start_search(
         status="running",
         discovered_vendors=vendors,
         online_platforms=[
-            *(["Flash Compare"] if search_strategy in {"both", "online"} and settings.flash_compare_enabled else []),
+            *(["Online marketplaces"] if search_strategy in {"both", "online"} and settings.flash_compare_enabled else []),
         ],
         steps=_build_steps(query, search_strategy, vendors, platforms),
         started_at=started_at,

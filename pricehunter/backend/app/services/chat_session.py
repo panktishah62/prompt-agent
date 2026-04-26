@@ -172,7 +172,7 @@ def _parse_intent(message: str) -> str | None:
 
 
 def _next_missing_field(state: ConversationState) -> ChatField | None:
-    order: list[ChatField] = ["product", "urgency", "intent", "category"]
+    order: list[ChatField] = ["product", "urgency", "location"]
     for field in order:
         if field in state.missing_fields:
             return field
@@ -185,10 +185,8 @@ def _update_missing_fields(state: ConversationState) -> None:
         missing.append("product")
     if not state.urgency:
         missing.append("urgency")
-    if not state.intent:
-        missing.append("intent")
-    if not state.category:
-        missing.append("category")
+    if not state.location or state.location == "unknown":
+        missing.append("location")
     state.missing_fields = missing
     state.awaiting_field = _next_missing_field(state)
 
@@ -200,6 +198,8 @@ def _suggested_replies(field: ChatField | None) -> list[str]:
         return ["Cheapest", "Best value", "Fastest"]
     if field == "product":
         return ["iPhone 16 128GB", "boat Airdopes 141", "paracetamol tablets"]
+    if field == "location":
+        return ["Ahmedabad", "Rajkot", "Satellite, Ahmedabad"]
     return []
 
 
@@ -242,7 +242,7 @@ def _unsupported_category_response(state: ConversationState) -> ChatMessageRespo
     state.product_follow_up_questions = []
     state.search_strategy = None
     state.awaiting_field = "product"
-    state.missing_fields = ["product", "urgency", "intent", "category"]
+    state.missing_fields = ["product", "urgency", "location"]
     _save_session(state)
     return ChatMessageResponse(
         session_id=state.session_id,
@@ -258,7 +258,7 @@ def _question_for_state(state: ConversationState) -> str:
         existing = state.product or "that"
         if state.product_follow_up_questions:
             lines = [
-                f'I want to avoid a vague search. "{existing}" still needs a bit more detail before I start looking.',
+                f'I want to lock the exact product before I start searching. "{existing}" still needs a bit more detail.',
                 "Please reply with these details:",
             ]
             for index, question in enumerate(state.product_follow_up_questions, start=1):
@@ -270,15 +270,11 @@ def _question_for_state(state: ConversationState) -> str:
         )
     if state.awaiting_field == "urgency":
         return (
-            "How soon do you need it? Choose one: Immediate, 1-2 days, 10 days, or No rush. "
+            "What delivery timing works for you? Choose one: Immediate, 1-2 days, 10 days, or No rush. "
             "If you do not specify, I will default to Immediate."
         )
-    if state.awaiting_field == "intent":
-        return "What should I prioritize for this search: Cheapest, Best value, or Fastest?"
-    if state.awaiting_field == "category":
-        return (
-            "Which category fits best: groceries, electronics, clothing, medicine, hardware, or services?"
-        )
+    if state.awaiting_field == "location":
+        return "Which city or area should I search around for this order?"
     return "Tell me what you want to find, and I will narrow it down before searching."
 
 
@@ -323,6 +319,12 @@ async def _merge_message_into_state(state: ConversationState, message: str) -> N
         parsed = _parse_category(message) or query_structurer.infer_category(message)
         if parsed:
             state.category = parsed
+        await _refresh_product_precision(state)
+        return
+
+    if state.awaiting_field == "location":
+        parsed = query_structurer.infer_location(message)
+        state.location = parsed if parsed != "unknown" else _normalize_whitespace(message)
         await _refresh_product_precision(state)
         return
 
@@ -415,11 +417,12 @@ async def process_message(
         return _unsupported_category_response(state)
 
     vendor_count = len(progress.discovered_vendors)
-    platform_count = len(progress.online_platforms)
+    location_label = structured_query.location or state.location or "your area"
+    delivery_label = (state.urgency or "immediate").replace("-", " to ")
     assistant_message = (
-        f"I found {vendor_count} nearby vendors and queued {platform_count} online sources for "
-        f"{structured_query.product} in {structured_query.location}. I’m showing the vendor list now and "
-        "will keep updating prices as calls and online fetches complete."
+        f"Locked in: {structured_query.product}, delivery timeline {delivery_label}, search area {location_label}. "
+        f"I’m starting the search now, checking online prices and contacting {vendor_count} offline vendor"
+        f"{'' if vendor_count == 1 else 's'} in parallel. I’ll keep all updates here in the chat."
     )
 
     _save_session(state)

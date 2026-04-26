@@ -18,6 +18,94 @@ function getOrCreateDeviceId() {
   return generated
 }
 
+function formatList(items, maxVisible = 6) {
+  if (!items?.length) {
+    return ''
+  }
+  if (items.length <= maxVisible) {
+    return items.join(', ')
+  }
+  return `${items.slice(0, maxVisible).join(', ')}, and ${items.length - maxVisible} more`
+}
+
+function buildInitialSearchMessages(progress) {
+  if (!progress) {
+    return []
+  }
+
+  const product = progress.query?.product || 'your product'
+  const location = progress.query?.location || 'your area'
+  const vendorNames = (progress.discovered_vendors || []).map((vendor) => vendor.name)
+  const messages = [
+    {
+      message_id: `search-start-${progress.search_id}`,
+      role: 'assistant',
+      kind: 'status',
+      content: `I’ve started the search for ${product} in ${location}. I’m running the online and offline search in parallel now.`,
+      created_at: new Date().toISOString(),
+    },
+  ]
+
+  if (vendorNames.length > 0) {
+    messages.push({
+      message_id: `vendor-list-${progress.search_id}`,
+      role: 'assistant',
+      kind: 'status',
+      content: `I found ${vendorNames.length} relevant offline vendor${vendorNames.length > 1 ? 's' : ''}: ${formatList(vendorNames)}. I’m contacting them now.`,
+      created_at: new Date().toISOString(),
+    })
+  }
+
+  if ((progress.online_platforms || []).length > 0) {
+    messages.push({
+      message_id: `online-start-${progress.search_id}`,
+      role: 'assistant',
+      kind: 'status',
+      content:
+        'I’m also checking online platforms for live prices and direct product links. I’ll share those here as soon as they appear.',
+      created_at: new Date().toISOString(),
+    })
+  }
+
+  return messages
+}
+
+function buildResultMessages(progress, newResults) {
+  const online = newResults.filter((result) => result.source_type === 'online')
+  const offline = newResults.filter((result) => result.source_type === 'offline')
+  const messages = []
+
+  if (online.length > 0) {
+    messages.push({
+      message_id: `partial-online-${progress.search_id}-${online.map((result) => result.id).join('-')}`,
+      role: 'assistant',
+      kind: 'results',
+      content:
+        online.length === 1
+          ? `I found an online price on ${online[0].name}. Here’s the direct product link.`
+          : `I found ${online.length} online price matches with direct product links.`,
+      payload: { results: online },
+      created_at: new Date().toISOString(),
+    })
+  }
+
+  if (offline.length > 0) {
+    messages.push({
+      message_id: `partial-offline-${progress.search_id}-${offline.map((result) => result.id).join('-')}`,
+      role: 'assistant',
+      kind: 'results',
+      content:
+        offline.length === 1
+          ? `I received a local vendor quote from ${offline[0].name}.`
+          : `I received ${offline.length} more local vendor quote${offline.length > 1 ? 's' : ''}.`,
+      payload: { results: offline },
+      created_at: new Date().toISOString(),
+    })
+  }
+
+  return messages
+}
+
 const initialMessages = [
   {
     message_id: 'welcome',
@@ -135,7 +223,7 @@ function App() {
   const [state, dispatch] = useReducer(reducer, initialState)
   const [input, setInput] = useState('')
   const [location, setLocation] = useState('')
-  const [isLocationPromptOpen, setIsLocationPromptOpen] = useState(true)
+  const [isLocationPromptOpen, setIsLocationPromptOpen] = useState(false)
   const [locationError, setLocationError] = useState('')
   const [isResolvingLocation, setIsResolvingLocation] = useState(false)
   const [locationAnnouncementShown, setLocationAnnouncementShown] = useState(false)
@@ -151,7 +239,6 @@ function App() {
     const savedLocation = window.localStorage.getItem(LOCATION_STORAGE_KEY)
     if (savedLocation) {
       setLocation(savedLocation)
-      setIsLocationPromptOpen(false)
     }
   }, [])
 
@@ -240,12 +327,17 @@ function App() {
     }
 
     if (progressTrackerRef.current.searchId !== progress.search_id) {
+      const initialMessages = buildInitialSearchMessages(progress)
       progressTrackerRef.current = {
         searchId: progress.search_id,
         stepStates: Object.fromEntries(progress.steps.map((step) => [step.id, step.status])),
         resultIds: new Set((progress.partial_results || []).map((result) => result.id)),
         finalMessageAdded: Boolean(progress.final_results),
       }
+      initialMessages.forEach((message) => {
+        dispatch({ type: 'APPEND_MESSAGE', payload: message })
+        persistSyntheticMessage(state.sessionId, message)
+      })
       return
     }
 
@@ -271,15 +363,7 @@ function App() {
     const newResults = (progress.partial_results || []).filter((result) => !tracker.resultIds.has(result.id))
     if (newResults.length > 0) {
       newResults.forEach((result) => tracker.resultIds.add(result.id))
-      nextMessages.push({
-        message_id: `partial-${progress.search_id}-${newResults.map((result) => result.id).join('-')}`,
-        role: 'assistant',
-        kind: 'status',
-        content: `I found ${newResults.length} more match${newResults.length > 1 ? 'es' : ''}: ${newResults
-          .map((result) => `${result.name}${result.price ? ` at INR ${Number(result.price).toLocaleString('en-IN')}` : ''}`)
-          .join(', ')}.`,
-        created_at: new Date().toISOString(),
-      })
+      nextMessages.push(...buildResultMessages(progress, newResults))
     }
 
     if (progress.final_results && !tracker.finalMessageAdded) {
@@ -288,7 +372,7 @@ function App() {
         message_id: `final-${progress.search_id}`,
         role: 'assistant',
         kind: 'results',
-        content: `I’ve finished the search and ranked ${progress.final_results.results.length} results for you.`,
+        content: 'The search is complete. Here’s the combined ranking across online and offline results.',
         payload: progress.final_results,
         created_at: new Date().toISOString(),
       })
@@ -366,11 +450,6 @@ function App() {
     if (!trimmed || state.isLoading) {
       return
     }
-    if (!location) {
-      setIsLocationPromptOpen(true)
-      setLocationError('Please confirm your location before searching.')
-      return
-    }
 
     dispatch({ type: 'SEND_START', payload: trimmed })
     setInput('')
@@ -388,7 +467,7 @@ function App() {
         body: JSON.stringify({
           message: trimmed,
           session_id: state.sessionId || undefined,
-          location,
+          location: location || undefined,
         }),
         signal: controller.signal,
       })
@@ -512,7 +591,7 @@ function App() {
                     message_id: 'loading-message',
                     role: 'assistant',
                     kind: 'status',
-                    content: `Working on that now${location ? ` for ${location}` : ''}.`,
+                    content: 'Let me lock that in and line up the next step.',
                   }}
                 />
               ) : null}
